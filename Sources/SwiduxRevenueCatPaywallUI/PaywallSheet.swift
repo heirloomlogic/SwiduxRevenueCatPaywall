@@ -24,17 +24,18 @@ public struct PaywallSheet: View {
         self.onDismiss = onDismiss
     }
 
+    /// The view body.
     public var body: some View {
         EmptyView()
             #if os(iOS)
-            .fullScreenCover(isPresented: .constant(isPresented), onDismiss: onDismiss) {
-                PaywallView()
-            }
+        .fullScreenCover(isPresented: .constant(isPresented), onDismiss: onDismiss) {
+            PaywallView()
+        }
             #else
-            .sheet(isPresented: .constant(isPresented), onDismiss: onDismiss) {
-                PaywallView()
-                    .frame(minWidth: 400, minHeight: 600)
-            }
+        .sheet(isPresented: .constant(isPresented), onDismiss: onDismiss) {
+            PaywallView()
+            .frame(minWidth: 400, minHeight: 600)
+        }
             #endif
     }
 }

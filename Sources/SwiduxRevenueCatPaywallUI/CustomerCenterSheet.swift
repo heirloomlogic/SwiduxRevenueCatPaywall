@@ -22,21 +22,22 @@ public struct CustomerCenterSheet: View {
         self.onDismiss = onDismiss
     }
 
+    /// The view body.
     public var body: some View {
         EmptyView()
             #if os(iOS)
-            .sheet(isPresented: .constant(isPresented), onDismiss: onDismiss) {
-                CustomerCenterView()
-            }
+        .sheet(isPresented: .constant(isPresented), onDismiss: onDismiss) {
+            CustomerCenterView()
+        }
             #else
-            .onChange(of: isPresented) { _, presented in
-                if presented {
-                    if let url = URL(string: "itms-apps://apps.apple.com/account/subscriptions") {
-                        NSWorkspace.shared.open(url)
-                    }
-                    onDismiss()
+        .onChange(of: isPresented) { _, presented in
+            if presented {
+                if let url = URL(string: "itms-apps://apps.apple.com/account/subscriptions") {
+                    NSWorkspace.shared.open(url)
                 }
+                onDismiss()
             }
+        }
             #endif
     }
 }

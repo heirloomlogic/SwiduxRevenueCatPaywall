@@ -17,20 +17,3 @@ jobs:
 
       - name: Test
         run: swift test
-
-  test-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.2"
-
-      - name: Link swift-format from Swift toolchain
-        run: sudo ln -s "$(dirname "$(which swift)")/swift-format" /usr/local/bin/swift-format
-
-      - name: Test
-        run: swift test

@@ -14,14 +14,17 @@ struct RevenueCatPaywallModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background {
-                PaywallSheet(isPresented: state.isPresented) {
-                    send(.dismiss)
-                }
-                CustomerCenterSheet(isPresented: state.isCustomerCenterPresented) {
-                    send(.dismissCustomerCenter)
-                }
+                PaywallSheet(isPresented: state.isPresented, onDismiss: dismissPaywall)
+                CustomerCenterSheet(
+                    isPresented: state.isCustomerCenterPresented,
+                    onDismiss: dismissCustomerCenter
+                )
             }
     }
+
+    func dismissPaywall() { send(.dismiss) }
+
+    func dismissCustomerCenter() { send(.dismissCustomerCenter) }
 }
 
 extension View {

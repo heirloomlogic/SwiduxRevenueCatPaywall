@@ -26,11 +26,13 @@ public struct RevenueCatPaywallService: PaywallService {
         self.permanentLicenseEntitlementID = permanentLicenseEntitlementID
     }
 
+    /// Fetches the current customer info from RevenueCat and maps it to an `EntitlementSnapshot`.
     public func customerInfo() async throws -> EntitlementSnapshot {
         let info = try await Purchases.shared.customerInfo()
         return snapshot(from: info)
     }
 
+    /// Returns a stream of entitlement snapshots derived from `Purchases.shared.customerInfoStream`.
     public func customerInfoStream() -> AsyncStream<EntitlementSnapshot> {
         let entitlementID = self.entitlementID
         let permanentLicenseEntitlementID = self.permanentLicenseEntitlementID
@@ -50,6 +52,7 @@ public struct RevenueCatPaywallService: PaywallService {
         }
     }
 
+    /// Restores purchases via RevenueCat and returns the resulting `EntitlementSnapshot`.
     public func restorePurchases() async throws -> EntitlementSnapshot {
         let info = try await Purchases.shared.restorePurchases()
         return snapshot(from: info)

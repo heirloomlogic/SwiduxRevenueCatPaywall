@@ -13,9 +13,9 @@ let package = Package(
         .library(name: "SwiduxRevenueCatPaywallUI", targets: ["SwiduxRevenueCatPaywallUI"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/HeirloomLogic/Swidux", from: "1.0.0"),
+        .package(url: "https://github.com/HeirloomLogic/Swidux", branch: "main"),
+        .package(url: "https://github.com/HeirloomLogic/SwiftFormatPlugin", branch: "main"),
         .package(url: "https://github.com/RevenueCat/purchases-ios-spm", from: "5.0.0"),
-        .package(url: "https://github.com/HeirloomLogic/SwiftFormatPlugin", from: "1.3.0"),
     ],
     targets: [
         .target(
@@ -43,6 +43,17 @@ let package = Package(
             name: "SwiduxRevenueCatPaywallTests",
             dependencies: [
                 "SwiduxRevenueCatPaywall",
+                .product(name: "SwiduxPaywall", package: "Swidux"),
+                .product(name: "RevenueCat", package: "purchases-ios-spm"),
+            ],
+            plugins: [
+                .plugin(name: "SwiftFormatBuildToolPlugin", package: "SwiftFormatPlugin")
+            ]
+        ),
+        .testTarget(
+            name: "SwiduxRevenueCatPaywallUITests",
+            dependencies: [
+                "SwiduxRevenueCatPaywallUI",
                 .product(name: "SwiduxPaywall", package: "Swidux"),
             ],
             plugins: [

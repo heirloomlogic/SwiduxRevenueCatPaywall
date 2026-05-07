@@ -10,7 +10,7 @@ on:
 
 jobs:
   test-macos:
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,6 +26,8 @@ jobs:
 
       - name: Install Swift
         uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
 
       - name: Test
         run: swift test

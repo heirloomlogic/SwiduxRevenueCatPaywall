@@ -3,7 +3,3 @@
 .swiftpm/
 Package.resolved
 xcuserdata/
-
-# SwiftFormat build-tool plugin artifacts dropped at package root
-_swift_format_probe.*
-resource_bundle_accessor.*

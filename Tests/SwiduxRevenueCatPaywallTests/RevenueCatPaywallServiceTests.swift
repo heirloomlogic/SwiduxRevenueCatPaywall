@@ -156,6 +156,75 @@ struct MockRevenueCatPaywallServiceTests {
     }
 }
 
+@Suite("RevenueCatPaywallService.mapStream")
+struct MapStreamTests {
+    @Test("Upstream values map through to snapshot stream")
+    func upstreamValuesMap() async {
+        let (upstream, continuation) = AsyncStream<CustomerInfo>.makeStream()
+        let mapped = RevenueCatPaywallService.mapStream(
+            upstream,
+            entitlementID: "pro",
+            permanentLicenseEntitlementID: nil
+        )
+
+        var iterator = mapped.makeAsyncIterator()
+
+        continuation.yield(makeCustomerInfo(entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)]))
+        let first = await iterator.next()
+        #expect(first?.isPro == true)
+
+        continuation.yield(makeCustomerInfo(entitlements: ["pro": makeEntitlement(id: "pro", isActive: false)]))
+        let second = await iterator.next()
+        #expect(second?.isPro == false)
+
+        continuation.finish()
+    }
+
+    @Test("Permanent-license identifier surfaces hasPermanentLicense")
+    func permanentLicenseSurfaces() async {
+        let (upstream, continuation) = AsyncStream<CustomerInfo>.makeStream()
+        let mapped = RevenueCatPaywallService.mapStream(
+            upstream,
+            entitlementID: "pro",
+            permanentLicenseEntitlementID: "lifetime"
+        )
+
+        var iterator = mapped.makeAsyncIterator()
+
+        continuation.yield(
+            makeCustomerInfo(
+                entitlements: [
+                    "lifetime": makeEntitlement(id: "lifetime", isActive: true)
+                ]
+            )
+        )
+        let snap = await iterator.next()
+        #expect(snap?.isPro == false)
+        #expect(snap?.hasPermanentLicense == true)
+
+        continuation.finish()
+    }
+
+    @Test("Upstream finish terminates the mapped stream")
+    func upstreamFinishTerminates() async {
+        let (upstream, continuation) = AsyncStream<CustomerInfo>.makeStream()
+        let mapped = RevenueCatPaywallService.mapStream(
+            upstream,
+            entitlementID: "pro",
+            permanentLicenseEntitlementID: nil
+        )
+
+        var iterator = mapped.makeAsyncIterator()
+
+        continuation.yield(makeCustomerInfo(entitlements: [:]))
+        _ = await iterator.next()
+        continuation.finish()
+
+        let terminal = await iterator.next()
+        #expect(terminal == nil)
+    }
+}
+
 // MARK: - Helpers
 
 private func makeCustomerInfo(entitlements: [String: EntitlementInfo]) -> CustomerInfo {

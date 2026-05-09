@@ -29,25 +29,19 @@
 
 ## Quickstart
 
-### 1. Configure RevenueCat at launch
-
-`RevenueCatPaywallService` calls into `Purchases.shared`, so configure the SDK before the store is constructed.
+Configure RevenueCat at launch, register the paywall plugin with `RevenueCatPaywallService`, and attach the bundled UI:
 
 ```swift
 import RevenueCat
-
-Purchases.configure(withAPIKey: "your_revenuecat_api_key")
-```
-
-### 2. Register the paywall plugin
-
-Pass `RevenueCatPaywallService` to `PaywallPlugin` when wiring your `Store`.
-
-```swift
 import Swidux
 import SwiduxPaywall
 import SwiduxRevenueCatPaywall
+import SwiduxRevenueCatPaywallUI
 
+// 1. App launch
+Purchases.configure(withAPIKey: "your_revenuecat_api_key")
+
+// 2. Plugin registration
 plugins.register(
     PaywallPlugin(
         state: \.paywall,
@@ -56,88 +50,33 @@ plugins.register(
         service: RevenueCatPaywallService(entitlementID: "pro")
     )
 )
+
+// 3. UI
+ContentView()
+    .revenueCatPaywall(state: store.paywall) { store.send(.paywall($0)) }
 ```
 
-Gate pro features by checking `store.paywall.isGateSatisfied`. See [Add a Paywall](https://heirloomlogic.github.io/Swidux/documentation/swidux/howtoaddapaywall) for the full plugin contract.
+Gate features by reading `store.paywall.isGateSatisfied`. Trigger the paywall with `store.send(.paywall(.request(reason: "...")))`. See the [Getting Started](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/gettingstarted) guide for the full walk-through.
 
-### 3. Attach the UI
+## Documentation
 
-Add `PaywallSheet` and `CustomerCenterSheet` to a root view, driven by paywall state.
+Full DocC reference at https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/. Starting points by intent:
 
-```swift
-import SwiduxRevenueCatPaywallUI
-
-struct RootView: View {
-    @Bindable var store: AppStore
-
-    var body: some View {
-        ContentView()
-            .background(
-                PaywallSheet(
-                    isPresented: store.paywall.isPresented,
-                    onDismiss: { store.send(.paywall(.dismiss)) }
-                )
-            )
-            .background(
-                CustomerCenterSheet(
-                    isPresented: store.paywall.isCustomerCenterPresented,
-                    onDismiss: { store.send(.paywall(.dismissCustomerCenter)) }
-                )
-            )
-    }
-}
-```
-
-## Previews and tests
-
-Use `MockRevenueCatPaywallService` to drive entitlement state without contacting RevenueCat. `send(_:)` pushes a snapshot to active stream subscribers; `finish()` ends the stream.
-
-```swift
-import SwiduxPaywall
-import SwiduxRevenueCatPaywall
-
-let mock = MockRevenueCatPaywallService(isPro: false)
-
-// Later — simulate a successful purchase.
-mock.send(EntitlementSnapshot(isPro: true, hasPermanentLicense: false))
-```
-
-Wire it into the plugin the same way as the live service:
-
-```swift
-PaywallPlugin(
-    state: \.paywall,
-    action: AppAction.paywall,
-    extractAction: { if case .paywall(let a) = $0 { return a }; return nil },
-    service: MockRevenueCatPaywallService(isPro: true)
-)
-```
-
-## Permanent license
-
-For apps that sell a lifetime entitlement alongside a subscription, pass a second identifier:
-
-```swift
-RevenueCatPaywallService(
-    entitlementID: "pro",
-    permanentLicenseEntitlementID: "lifetime"
-)
-```
-
-Both entitlements are checked on every `customerInfo()`, `customerInfoStream()`, and `restorePurchases()` call. The lifetime entitlement surfaces as `EntitlementSnapshot.hasPermanentLicense`, leaving `isPro` to track the subscription independently.
-
-## Platform notes
-
-- **iOS.** `PaywallSheet` presents `RevenueCatUI.PaywallView` in a `fullScreenCover`. `CustomerCenterSheet` presents `RevenueCatUI.CustomerCenterView` in a sheet.
-- **macOS.** `PaywallSheet` presents `PaywallView` in a sheet sized to a 400×600 minimum. `CustomerCenterSheet` does not present a view — it opens `itms-apps://apps.apple.com/account/subscriptions` in App Store and immediately calls `onDismiss`, since RevenueCat's customer center is iOS-only.
+- **I want the shortest path to a working paywall** — [Getting Started](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/gettingstarted)
+- **I want to wire the service step by step** — [How to Implement the Service](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/howtoimplementservice)
+- **I sell a lifetime SKU alongside a subscription** — [How to Add a Permanent License](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/howtoaddapermanentlicense)
+- **I want to preview / test without RevenueCat** — [How to Preview and Test](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/howtopreviewandtest)
+- **I want to wire the bundled sheets** — [How to Present the UI](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/howtopresenttheui)
+- **I want the API** — [Service Reference](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/servicereference), [Mock Service Reference](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/mockservicereference), [UI Components Reference](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywallui/uicomponentsreference)
+- **I want to understand the design choices** — [Platform Behavior](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/platformbehavior), [Entitlement Mapping](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/entitlementmapping)
 
 ## Requirements
 
-- Swift 6.2
+- Swift 6.2 / Xcode 26+
 - iOS 18 / macOS 15
 - [Swidux](https://github.com/HeirloomLogic/Swidux) (`SwiduxPaywall` product)
 - [RevenueCat](https://github.com/RevenueCat/purchases-ios-spm) 5.0+
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

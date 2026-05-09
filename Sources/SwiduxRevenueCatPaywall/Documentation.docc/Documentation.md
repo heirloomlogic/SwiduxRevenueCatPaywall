@@ -46,6 +46,7 @@ The plugin and the adapter stay decoupled: the plugin doesn't know about Revenue
 
 - <doc:ServiceReference>
 - <doc:MockServiceReference>
+- <doc:UIComponentsReference>
 
 ### Explanation
 

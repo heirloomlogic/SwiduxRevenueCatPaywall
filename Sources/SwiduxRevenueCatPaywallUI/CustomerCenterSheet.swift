@@ -37,6 +37,12 @@ public struct CustomerCenterSheet: View {
         self.onDismiss = onDismiss
     }
 
+    /// An `EmptyView` plus the platform-appropriate presentation modifier.
+    ///
+    /// On iOS the body attaches a `sheet` modifier that presents `RevenueCatUI.CustomerCenterView`.
+    /// On macOS the body attaches an `onChange` modifier that opens the App Store subscriptions URL
+    /// and immediately fires `onDismiss`. The view itself contributes no layout — attach via
+    /// `.background`.
     public var body: some View {
         EmptyView()
             #if os(iOS)

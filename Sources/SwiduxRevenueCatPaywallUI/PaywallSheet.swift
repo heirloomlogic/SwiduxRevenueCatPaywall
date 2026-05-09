@@ -36,6 +36,10 @@ public struct PaywallSheet: View {
         self.onDismiss = onDismiss
     }
 
+    /// An `EmptyView` plus the platform-appropriate presentation modifier.
+    ///
+    /// The view itself contributes no layout. Attach via `.background` so SwiftUI keeps the
+    /// presentation lifecycle attached to the sheet without affecting the parent's layout tree.
     public var body: some View {
         EmptyView()
             #if os(iOS)

@@ -61,6 +61,8 @@ extension View {
     ///   - state: The paywall slice from your store, typically `store.paywall`.
     ///   - send: A closure that lifts a `PaywallAction` into your root action and dispatches it,
     ///     for example `{ store.send(.paywall($0)) }`.
+    /// - Returns: A view with both `PaywallSheet` and `CustomerCenterSheet` attached, ready to
+    ///   present whichever the paywall plugin signals.
     public func revenueCatPaywall(
         state: PaywallState,
         send: @escaping (PaywallAction) -> Void

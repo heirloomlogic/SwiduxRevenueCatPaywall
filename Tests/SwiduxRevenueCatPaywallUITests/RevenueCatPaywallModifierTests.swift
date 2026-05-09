@@ -10,6 +10,7 @@ import Testing
 @testable import SwiduxRevenueCatPaywallUI
 
 @Suite("RevenueCatPaywallModifier")
+@MainActor
 struct RevenueCatPaywallModifierTests {
     @Test("dismissPaywall dispatches PaywallAction.dismiss")
     func dismissPaywallDispatchesDismiss() {

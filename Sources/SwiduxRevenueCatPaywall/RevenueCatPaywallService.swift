@@ -52,22 +52,11 @@ public struct RevenueCatPaywallService: PaywallService {
     /// finishes when the underlying RevenueCat stream finishes; the paywall plugin's
     /// `.observeCustomerInfo` effect normally keeps it alive for the duration of the session.
     public func customerInfoStream() -> AsyncStream<EntitlementSnapshot> {
-        let entitlementID = self.entitlementID
-        let permanentLicenseEntitlementID = self.permanentLicenseEntitlementID
-        return AsyncStream { continuation in
-            let task = Task {
-                for await info in Purchases.shared.customerInfoStream {
-                    let snap = Self.makeSnapshot(
-                        from: info,
-                        entitlementID: entitlementID,
-                        permanentLicenseEntitlementID: permanentLicenseEntitlementID
-                    )
-                    continuation.yield(snap)
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
+        Self.mapStream(
+            Purchases.shared.customerInfoStream,
+            entitlementID: entitlementID,
+            permanentLicenseEntitlementID: permanentLicenseEntitlementID
+        )
     }
 
     /// Restores the user's purchases through RevenueCat.
@@ -91,7 +80,31 @@ public struct RevenueCatPaywallService: PaywallService {
         )
     }
 
-    private static func makeSnapshot(
+    /// Wraps an upstream `CustomerInfo` stream and yields a mapped `EntitlementSnapshot` for every
+    /// value the upstream produces. Cancelling the consuming task cancels the upstream iteration.
+    static func mapStream(
+        _ upstream: AsyncStream<CustomerInfo>,
+        entitlementID: String,
+        permanentLicenseEntitlementID: String?
+    ) -> AsyncStream<EntitlementSnapshot> {
+        AsyncStream { continuation in
+            let task = Task {
+                for await info in upstream {
+                    continuation.yield(
+                        makeSnapshot(
+                            from: info,
+                            entitlementID: entitlementID,
+                            permanentLicenseEntitlementID: permanentLicenseEntitlementID
+                        )
+                    )
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    static func makeSnapshot(
         from info: CustomerInfo,
         entitlementID: String,
         permanentLicenseEntitlementID: String?

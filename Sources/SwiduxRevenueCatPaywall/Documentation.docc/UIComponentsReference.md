@@ -23,7 +23,7 @@ The UI product depends on `SwiduxRevenueCatPaywall` and `RevenueCatUI`, both pul
 
 ## Types
 
-### ``PaywallSheet``
+### `PaywallSheet`
 
 ```swift
 public struct PaywallSheet: View {
@@ -43,7 +43,7 @@ Place anywhere in the view tree; the body is `EmptyView` plus the platform-appro
 - `isPresented` — Whether the sheet is visible. Pass `store.paywall.isPresented` directly. The plugin owns this flag.
 - `onDismiss` — Called when the user dismisses the sheet. Dispatch `.paywall(.dismiss)` so the plugin clears its presentation state and triggers an entitlement refresh.
 
-### ``CustomerCenterSheet``
+### `CustomerCenterSheet`
 
 ```swift
 public struct CustomerCenterSheet: View {
@@ -72,7 +72,7 @@ extension View {
 }
 ```
 
-Convenience modifier that attaches both ``PaywallSheet`` and ``CustomerCenterSheet`` and dispatches the matching dismiss action when each sheet closes.
+Convenience modifier that attaches both `PaywallSheet` and `CustomerCenterSheet` and dispatches the matching dismiss action when each sheet closes.
 
 #### Parameters
 
@@ -101,7 +101,5 @@ Use the modifier when both sheets are needed; use the manual form when only one 
 
 ## See Also
 
-- ``PaywallSheet``
-- ``CustomerCenterSheet``
-
-For wiring guidance and platform rationale, see *How to Present the UI* and *Platform Behavior* in the `SwiduxRevenueCatPaywall` documentation.
+- <doc:HowToPresentTheUI>
+- <doc:PlatformBehavior>

@@ -1,0 +1,187 @@
+# How to Implement the Service
+
+Wire `RevenueCatPaywallService` into the `SwiduxPaywall` plugin so the store sees real-time entitlement updates from RevenueCat.
+
+## Overview
+
+This guide takes you from a wired Swidux app with a paywall slice to a live RevenueCat-backed entitlement pipeline. It covers SDK configuration, plugin registration, observation lifecycle, and refresh/restore flows.
+
+For the API-level reference of the service, see <doc:ServiceReference>. For the entitlement mapping rules, see <doc:EntitlementMapping>. For the upstream plugin contract — actions, state shape, dispatch semantics — see Swidux's *Add a Paywall* and *SwiduxPaywall Reference*; this guide does not repeat that material.
+
+## Before you start
+
+This guide assumes:
+
+- You have a wired Swidux app — `AppState`, `AppAction`, `AppReducer`, `AppStore` exist, and the store is in the SwiftUI environment.
+- Your `AppState` already has a `paywall: PaywallState` slice and your `AppAction` has a `.paywall(PaywallAction)` case. If not, follow Swidux's *Add a Paywall* guide first.
+- You have a RevenueCat project, an API key, and at least one entitlement identifier configured in the RevenueCat dashboard.
+
+## Step 1: Add the dependencies
+
+Add both Swift packages to your `Package.swift`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/HeirloomLogic/Swidux", branch: "main"),
+    .package(url: "https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall", branch: "main"),
+],
+```
+
+Add the products you need to your app target:
+
+```swift
+.target(
+    name: "MyApp",
+    dependencies: [
+        .product(name: "Swidux", package: "Swidux"),
+        .product(name: "SwiduxPaywall", package: "Swidux"),
+        .product(name: "SwiduxRevenueCatPaywall", package: "SwiduxRevenueCatPaywall"),
+        .product(name: "SwiduxRevenueCatPaywallUI", package: "SwiduxRevenueCatPaywall"),
+    ]
+)
+```
+
+`SwiduxRevenueCatPaywallUI` is optional — drop it if you don't need the bundled sheets.
+
+## Step 2: Configure RevenueCat at launch
+
+`RevenueCatPaywallService` calls into `Purchases.shared`. Configure the SDK before constructing the store:
+
+```swift
+// MyApp.swift
+import RevenueCat
+import SwiftUI
+
+@main
+struct MyApp: App {
+    @State private var store: AppStore
+
+    init() {
+        Purchases.configure(withAPIKey: "your_revenuecat_api_key")
+        _store = State(wrappedValue: AppStore.configured())
+    }
+
+    var body: some Scene {
+        WindowGroup { ContentView().environment(store) }
+    }
+}
+```
+
+> Important: `Purchases.shared` traps if used unconfigured. Configure it before anything that constructs `RevenueCatPaywallService`, including SwiftUI previews — guard preview-only code with `MockRevenueCatPaywallService` instead.
+
+## Step 3: Construct the service
+
+Create the service with the entitlement identifier you set up in the RevenueCat dashboard:
+
+```swift
+import SwiduxRevenueCatPaywall
+
+let service = RevenueCatPaywallService(entitlementID: "pro")
+```
+
+If your app sells a separate lifetime SKU alongside a subscription, see <doc:HowToAddAPermanentLicense> for the dual-entitlement form.
+
+## Step 4: Register the paywall plugin
+
+Pass the service to `PaywallPlugin` when wiring the store:
+
+```swift
+// AppStore.swift
+import Swidux
+import SwiduxPaywall
+import SwiduxRevenueCatPaywall
+
+extension Store where State == AppState, Action == AppAction {
+    static func configured() -> AppStore {
+        let plugins = PluginHost<AppState, AppAction>()
+
+        plugins.register(
+            PaywallPlugin<AppState, AppAction>(
+                state: \.paywall,
+                action: AppAction.paywall,
+                extractAction: { if case .paywall(let a) = $0 { return a }; return nil },
+                service: RevenueCatPaywallService(entitlementID: "pro")
+            )
+        )
+
+        return Store(
+            initialState: AppState(),
+            reducer: AppReducer().reduce,
+            plugins: plugins
+        )
+    }
+}
+```
+
+The plugin owns reducing for `.paywall` actions; your root reducer should fall through with `return nil` for that case.
+
+## Step 5: Observe customer info on launch
+
+Start the entitlement stream once, on the root view:
+
+```swift
+struct ContentView: View {
+    @Environment(AppStore.self) private var store
+
+    var body: some View {
+        RootContent()
+            .task { store.send(.paywall(.observeCustomerInfo)) }
+    }
+}
+```
+
+`observeCustomerInfo` returns a long-lived effect that consumes `RevenueCatPaywallService.customerInfoStream()`. Every snapshot the service yields flows through `.customerInfoUpdated` and updates `store.paywall.isPro` / `hasPermanentLicense`. The effect lives for the duration of the stream, so the store stays in sync with RevenueCat without polling.
+
+## Step 6: Gate features
+
+Read `store.paywall.isGateSatisfied` before running gated work. If it's `false`, dispatch `.request(reason:)` instead:
+
+```swift
+Button("Export PDF") {
+    if store.paywall.isGateSatisfied {
+        store.send(.export(.exportPDF))
+    } else {
+        store.send(.paywall(.request(reason: "export-pdf")))
+    }
+}
+```
+
+`isGateSatisfied` returns `true` when the user holds an active pro subscription **or** a permanent license — feature code does not need to know which.
+
+## Step 7: Wire the UI
+
+To present `RevenueCatUI.PaywallView` and the customer center, attach the bundled sheets to a root view. See <doc:HowToPresentTheUI>.
+
+## Step 8: Restore purchases
+
+Add a restore button to your paywall UI. Reflect `store.paywall.isLoading` to disable it while the call is in flight:
+
+```swift
+Button("Restore Purchases") {
+    store.send(.paywall(.restorePurchases))
+}
+.disabled(store.paywall.isLoading)
+```
+
+The plugin calls `RevenueCatPaywallService.restorePurchases()`, which forwards to `Purchases.shared.restorePurchases()`. On success the resulting snapshot flows through `.customerInfoUpdated` and updates the gate. On failure, `store.paywall.error` is set.
+
+## Step 9: Handle errors
+
+The service throws whatever `Purchases.shared` throws — `ErrorCode.networkError`, `.offlineConnectionError`, configuration errors, etc. The plugin catches the error and dispatches `.refreshFailed(message)`. Read `store.paywall.error` from your paywall view to surface a retry affordance:
+
+```swift
+if let error = store.paywall.error {
+    Text(error)
+        .foregroundStyle(.red)
+    Button("Retry") {
+        store.send(.paywall(.refreshCustomerInfo))
+    }
+}
+```
+
+## See Also
+
+- <doc:ServiceReference>
+- <doc:HowToAddAPermanentLicense>
+- <doc:HowToPresentTheUI>
+- <doc:EntitlementMapping>

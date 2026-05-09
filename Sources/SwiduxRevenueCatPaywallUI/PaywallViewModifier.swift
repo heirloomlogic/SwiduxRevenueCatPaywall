@@ -28,12 +28,39 @@ struct RevenueCatPaywallModifier: ViewModifier {
 }
 
 extension View {
-    /// Attaches RevenueCat paywall and customer-center sheets driven by `PaywallState`.
+    /// Attaches both ``PaywallSheet`` and ``CustomerCenterSheet`` driven by `PaywallState`.
+    ///
+    /// Convenience modifier that composes both sheets in one call and dispatches the matching
+    /// dismiss action when each closes (`.dismiss` for the paywall, `.dismissCustomerCenter`
+    /// for the customer center).
     ///
     /// ```swift
     /// ContentView()
     ///     .revenueCatPaywall(state: store.paywall) { store.send(.paywall($0)) }
     /// ```
+    ///
+    /// Equivalent to attaching both sheets manually:
+    ///
+    /// ```swift
+    /// ContentView()
+    ///     .background(
+    ///         PaywallSheet(
+    ///             isPresented: store.paywall.isPresented,
+    ///             onDismiss: { store.send(.paywall(.dismiss)) }
+    ///         )
+    ///     )
+    ///     .background(
+    ///         CustomerCenterSheet(
+    ///             isPresented: store.paywall.isCustomerCenterPresented,
+    ///             onDismiss: { store.send(.paywall(.dismissCustomerCenter)) }
+    ///         )
+    ///     )
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - state: The paywall slice from your store, typically `store.paywall`.
+    ///   - send: A closure that lifts a `PaywallAction` into your root action and dispatches it,
+    ///     for example `{ store.send(.paywall($0)) }`.
     public func revenueCatPaywall(
         state: PaywallState,
         send: @escaping (PaywallAction) -> Void

@@ -7,22 +7,36 @@ import RevenueCatUI
 import SwiduxPaywall
 import SwiftUI
 
-/// Presents the RevenueCat customer center on iOS, or opens the App Store subscriptions page on macOS.
+/// Drop-in customer-center presentation that adapts to platform support.
+///
+/// Place anywhere in the view tree (typically `.background`) and bind `isPresented` to
+/// `PaywallState.isCustomerCenterPresented`.
+///
+/// Presentation differs by platform:
+///
+/// - **iOS** — Presents `RevenueCatUI.CustomerCenterView` in a `sheet`.
+/// - **macOS** — RevenueCatUI does not ship a customer center on macOS. This view instead opens
+///   `itms-apps://apps.apple.com/account/subscriptions` in App Store and immediately fires
+///   `onDismiss`, so the dispatched flow stays symmetric with iOS.
+///
+/// See the *Platform Behavior* article in the `SwiduxRevenueCatPaywall` documentation for the rationale.
 public struct CustomerCenterSheet: View {
     private let isPresented: Bool
     private let onDismiss: () -> Void
 
-    /// Creates a customer center sheet.
+    /// Creates a customer-center sheet driven by `PaywallState.isCustomerCenterPresented`.
     ///
     /// - Parameters:
-    ///   - isPresented: Whether the sheet is visible (from `PaywallState.isCustomerCenterPresented`).
-    ///   - onDismiss: Called when the user dismisses the sheet.
+    ///   - isPresented: Whether the sheet is visible. Pass `store.paywall.isCustomerCenterPresented`
+    ///     directly.
+    ///   - onDismiss: Called when the user dismisses the sheet (or, on macOS, immediately after
+    ///     the App Store URL is opened). Dispatch `.paywall(.dismissCustomerCenter)` so the plugin
+    ///     clears its presentation state.
     public init(isPresented: Bool, onDismiss: @escaping () -> Void) {
         self.isPresented = isPresented
         self.onDismiss = onDismiss
     }
 
-    /// The view body.
     public var body: some View {
         EmptyView()
             #if os(iOS)

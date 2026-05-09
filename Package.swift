@@ -16,6 +16,7 @@ let package = Package(
         .package(url: "https://github.com/HeirloomLogic/Swidux", branch: "main"),
         .package(url: "https://github.com/HeirloomLogic/SwiftFormatPlugin", branch: "main"),
         .package(url: "https://github.com/RevenueCat/purchases-ios-spm", from: "5.0.0"),
+        .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.5.0"),
     ],
     targets: [
         .target(

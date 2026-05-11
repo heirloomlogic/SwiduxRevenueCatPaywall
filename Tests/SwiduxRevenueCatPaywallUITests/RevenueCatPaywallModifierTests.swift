@@ -12,13 +12,42 @@ import Testing
 @Suite("RevenueCatPaywallModifier")
 @MainActor
 struct RevenueCatPaywallModifierTests {
-    @Test("dismissPaywall dispatches PaywallAction.dismiss")
-    func dismissPaywallDispatchesDismiss() {
+    @Test("Modifier does not dispatch on construction")
+    func modifierDoesNotDispatchOnConstruction() {
         let recorder = ActionRecorder()
-        let modifier = RevenueCatPaywallModifier(state: PaywallState(), send: recorder.record)
+        _ = RevenueCatPaywallModifier(state: PaywallState(isPresented: true), send: recorder.record)
 
-        modifier.dismissPaywall()
+        #expect(recorder.snapshot.isEmpty)
+    }
 
+    @Test("paywallBinding reads state.isPresented")
+    func paywallBindingReadsState() {
+        let recorder = ActionRecorder()
+        let presented = RevenueCatPaywallModifier(
+            state: PaywallState(isPresented: true),
+            send: recorder.record
+        )
+        let hidden = RevenueCatPaywallModifier(
+            state: PaywallState(isPresented: false),
+            send: recorder.record
+        )
+
+        #expect(presented.paywallBinding.wrappedValue == true)
+        #expect(hidden.paywallBinding.wrappedValue == false)
+    }
+
+    @Test("paywallBinding setter dispatches .dismiss only when set to false")
+    func paywallBindingSetterDispatchesOnDismissal() {
+        let recorder = ActionRecorder()
+        let modifier = RevenueCatPaywallModifier(
+            state: PaywallState(isPresented: true),
+            send: recorder.record
+        )
+
+        modifier.paywallBinding.wrappedValue = true
+        #expect(recorder.snapshot.isEmpty, "setting to true should not dispatch")
+
+        modifier.paywallBinding.wrappedValue = false
         let actions = recorder.snapshot
         #expect(actions.count == 1)
         if case .dismiss = actions.first {
@@ -27,27 +56,26 @@ struct RevenueCatPaywallModifierTests {
         }
     }
 
-    @Test("dismissCustomerCenter dispatches PaywallAction.dismissCustomerCenter")
-    func dismissCustomerCenterDispatchesAction() {
+    @Test("customerCenterBinding setter dispatches .dismissCustomerCenter only when set to false")
+    func customerCenterBindingSetterDispatchesOnDismissal() {
         let recorder = ActionRecorder()
-        let modifier = RevenueCatPaywallModifier(state: PaywallState(), send: recorder.record)
+        let modifier = RevenueCatPaywallModifier(
+            state: PaywallState(isCustomerCenterPresented: true),
+            send: recorder.record
+        )
 
-        modifier.dismissCustomerCenter()
+        modifier.customerCenterBinding.wrappedValue = true
+        #expect(recorder.snapshot.isEmpty, "setting to true should not dispatch")
 
+        modifier.customerCenterBinding.wrappedValue = false
         let actions = recorder.snapshot
         #expect(actions.count == 1)
         if case .dismissCustomerCenter = actions.first {
         } else {
-            Issue.record("expected .dismissCustomerCenter, got \(String(describing: actions.first))")
+            Issue.record(
+                "expected .dismissCustomerCenter, got \(String(describing: actions.first))"
+            )
         }
-    }
-
-    @Test("Modifier does not dispatch on construction")
-    func modifierDoesNotDispatchOnConstruction() {
-        let recorder = ActionRecorder()
-        _ = RevenueCatPaywallModifier(state: PaywallState(isPresented: true), send: recorder.record)
-
-        #expect(recorder.snapshot.isEmpty)
     }
 }
 

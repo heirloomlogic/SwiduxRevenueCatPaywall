@@ -13,8 +13,8 @@ let package = Package(
         .library(name: "SwiduxRevenueCatPaywallUI", targets: ["SwiduxRevenueCatPaywallUI"]),
     ],
     dependencies: [
+        .package(url: "https://github.com/HeirloomLogic/Persnicket", from: "2.0.0"),
         .package(url: "https://github.com/HeirloomLogic/Swidux", branch: "main"),
-        .package(url: "https://github.com/HeirloomLogic/SwiftFormatPlugin", from: "1.6.1"),
         .package(url: "https://github.com/RevenueCat/purchases-ios-spm", from: "5.0.0"),
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.5.0"),
     ],
@@ -26,7 +26,7 @@ let package = Package(
                 .product(name: "RevenueCat", package: "purchases-ios-spm"),
             ],
             plugins: [
-                .plugin(name: "SwiftFormatBuildToolPlugin", package: "SwiftFormatPlugin")
+                .plugin(name: "Persnoop", package: "Persnicket")
             ]
         ),
         .target(
@@ -37,7 +37,7 @@ let package = Package(
                 .product(name: "RevenueCatUI", package: "purchases-ios-spm"),
             ],
             plugins: [
-                .plugin(name: "SwiftFormatBuildToolPlugin", package: "SwiftFormatPlugin")
+                .plugin(name: "Persnoop", package: "Persnicket")
             ]
         ),
         .testTarget(
@@ -48,7 +48,7 @@ let package = Package(
                 .product(name: "RevenueCat", package: "purchases-ios-spm"),
             ],
             plugins: [
-                .plugin(name: "SwiftFormatBuildToolPlugin", package: "SwiftFormatPlugin")
+                .plugin(name: "Persnoop", package: "Persnicket")
             ]
         ),
         .testTarget(
@@ -58,7 +58,7 @@ let package = Package(
                 .product(name: "SwiduxPaywall", package: "Swidux"),
             ],
             plugins: [
-                .plugin(name: "SwiftFormatBuildToolPlugin", package: "SwiftFormatPlugin")
+                .plugin(name: "Persnoop", package: "Persnicket")
             ]
         ),
     ]

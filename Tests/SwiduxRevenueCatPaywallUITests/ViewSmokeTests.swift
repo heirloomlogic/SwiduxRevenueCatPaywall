@@ -9,42 +9,33 @@ import Testing
 
 @testable import SwiduxRevenueCatPaywallUI
 
-/// Smoke tests that exercise the SwiftUI `body` getters on the bundled views.
+/// Smoke tests that exercise composition of the bundled view modifiers.
 ///
-/// These do not assert on rendered output — that would require a third-party introspection lib.
-/// They confirm the views construct cleanly and their bodies evaluate without crashing, which
-/// catches construction-time regressions in the platform-conditional presentation code.
+/// `ModifiedContent.body` traps when accessed outside a render pass, so these tests confirm only
+/// that the modifier chain composes onto a `View` without crashing at construction. Rendered
+/// behavior is covered indirectly by `RevenueCatPaywallModifierTests`, which exercises the
+/// dispatch path through the modifier's bindings.
 @Suite("View smoke tests")
 @MainActor
 struct ViewSmokeTests {
-    @Test("PaywallSheet body evaluates when not presented")
-    func paywallSheetBodyEvaluatesNotPresented() {
-        let sheet = PaywallSheet(isPresented: false, onDismiss: {})
-        _ = sheet.body
+    @Test("revenueCatPaywall(isPresented:onDismiss:) composes onto a view")
+    func revenueCatPaywallPrimitiveComposes() {
+        var flag = false
+        _ = EmptyView().revenueCatPaywall(
+            isPresented: Binding(get: { flag }, set: { flag = $0 })
+        )
     }
 
-    @Test("PaywallSheet body evaluates when presented")
-    func paywallSheetBodyEvaluatesPresented() {
-        let sheet = PaywallSheet(isPresented: true, onDismiss: {})
-        _ = sheet.body
+    @Test("revenueCatCustomerCenter(isPresented:onDismiss:) composes onto a view")
+    func revenueCatCustomerCenterPrimitiveComposes() {
+        var flag = false
+        _ = EmptyView().revenueCatCustomerCenter(
+            isPresented: Binding(get: { flag }, set: { flag = $0 })
+        )
     }
 
-    @Test("CustomerCenterSheet body evaluates when not presented")
-    func customerCenterSheetBodyEvaluatesNotPresented() {
-        let sheet = CustomerCenterSheet(isPresented: false, onDismiss: {})
-        _ = sheet.body
-    }
-
-    @Test("CustomerCenterSheet body evaluates when presented")
-    func customerCenterSheetBodyEvaluatesPresented() {
-        let sheet = CustomerCenterSheet(isPresented: true, onDismiss: {})
-        _ = sheet.body
-    }
-
-    @Test("revenueCatPaywall modifier composes onto a view")
-    func revenueCatPaywallModifierComposes() {
-        // Constructing the modified view is sufficient smoke. SwiftUI's `ModifiedContent.body`
-        // traps when accessed outside a render pass, so we don't try to evaluate it here.
+    @Test("revenueCatPaywall(state:send:) composes onto a view")
+    func revenueCatPaywallConvenienceComposes() {
         _ = EmptyView().revenueCatPaywall(state: PaywallState()) { _ in }
     }
 }

@@ -1,10 +1,10 @@
 # How to Present the UI
 
-Attach `PaywallSheet` and `CustomerCenterSheet` from `SwiduxRevenueCatPaywallUI` to a root view, driven by `PaywallState`.
+Attach the `revenueCatPaywall` and `revenueCatCustomerCenter` view modifiers from `SwiduxRevenueCatPaywallUI` to a root view, driven by `PaywallState`.
 
 ## Overview
 
-`SwiduxRevenueCatPaywallUI` ships two SwiftUI views and a convenience modifier that wrap RevenueCatUI's surfaces with platform-aware presentation. Each is bound to `PaywallState`: presentation flags drive visibility, dismissal closures dispatch matching paywall actions back through the store. There is no local sheet state.
+`SwiduxRevenueCatPaywallUI` ships three view modifiers that wrap RevenueCatUI's surfaces with platform-aware presentation. Each is bound to `PaywallState`: presentation flags drive visibility, and the bindings dispatch matching paywall actions back through the store on dismissal. There is no local sheet state.
 
 For platform behavior details (iOS `fullScreenCover` vs macOS sheet sizing, App Store deep link on macOS), see <doc:PlatformBehavior>.
 
@@ -50,7 +50,7 @@ Button("Export PDF") {
 }
 ```
 
-The plugin sets `PaywallState.isPresented = true`. `PaywallSheet` observes the change and presents `RevenueCatUI.PaywallView`.
+The plugin sets `PaywallState.isPresented = true`. The `revenueCatPaywall` modifier observes the change and presents `RevenueCatUI.PaywallView`.
 
 ## Step 3: Trigger the customer center
 
@@ -64,29 +64,29 @@ if store.paywall.isPro {
 }
 ```
 
-`CustomerCenterSheet` presents `RevenueCatUI.CustomerCenterView` on iOS. On macOS it opens the system App Store subscriptions URL and immediately fires `onDismiss` (RevenueCatUI does not ship a customer center on macOS — see <doc:PlatformBehavior>).
+The `revenueCatCustomerCenter` modifier presents `RevenueCatUI.CustomerCenterView` on iOS. On macOS it opens the system App Store subscriptions URL and immediately fires `onDismiss` (RevenueCatUI does not ship a customer center on macOS — see <doc:PlatformBehavior>).
 
 ## Step 4: Manual wiring (optional)
 
-If you need only one sheet, or you want to interleave other modifiers between them, attach each manually:
+If you need only one sheet, or you want to interleave other modifiers between them, attach the primitive modifiers directly. Each takes a real `Binding<Bool>`; build it with a `set:` that dispatches the matching dismiss action when SwiftUI clears the flag:
 
 ```swift
 ContentView()
-    .background(
-        PaywallSheet(
-            isPresented: store.paywall.isPresented,
-            onDismiss: { store.send(.paywall(.dismiss)) }
+    .revenueCatPaywall(
+        isPresented: Binding(
+            get: { store.paywall.isPresented },
+            set: { if !$0 { store.send(.paywall(.dismiss)) } }
         )
     )
-    .background(
-        CustomerCenterSheet(
-            isPresented: store.paywall.isCustomerCenterPresented,
-            onDismiss: { store.send(.paywall(.dismissCustomerCenter)) }
+    .revenueCatCustomerCenter(
+        isPresented: Binding(
+            get: { store.paywall.isCustomerCenterPresented },
+            set: { if !$0 { store.send(.paywall(.dismissCustomerCenter)) } }
         )
     )
 ```
 
-The modifier form is exactly equivalent to this wiring.
+The convenience modifier `revenueCatPaywall(state:send:)` is exactly equivalent to this wiring.
 
 ## Step 5: Restore from inside the paywall
 

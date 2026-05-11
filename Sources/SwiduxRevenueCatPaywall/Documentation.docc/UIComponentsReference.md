@@ -1,10 +1,10 @@
 # UI Components Reference
 
-API reference for `PaywallSheet`, `CustomerCenterSheet`, and the `revenueCatPaywall(state:send:)` view modifier — the SwiftUI surface of `SwiduxRevenueCatPaywallUI`.
+API reference for the `revenueCatPaywall` and `revenueCatCustomerCenter` view modifiers — the SwiftUI surface of `SwiduxRevenueCatPaywallUI`.
 
 ## Overview
 
-The UI product layers two `View` types and a convenience modifier on top of `RevenueCatUI`. Each is a stateless wrapper bound to `PaywallState`: presentation flags drive visibility, and dismissal closures dispatch matching paywall actions back through the store.
+The UI product layers three view modifiers on top of `RevenueCatUI`. Two primitives present the paywall and customer center directly from a `Binding<Bool>`; one convenience modifier composes both, driven by `PaywallState`. Each presentation modifier attaches to the modified content view directly — there are no `View` wrappers and no `.background { … }` indirection. This shape is what makes the macOS sheet machinery present reliably.
 
 For step-by-step wiring, see *How to Present the UI* in the `SwiduxRevenueCatPaywall` documentation. For the rationale behind platform-specific behavior, see *Platform Behavior* in the same catalog.
 
@@ -21,45 +21,51 @@ For step-by-step wiring, see *How to Present the UI* in the `SwiduxRevenueCatPay
 
 The UI product depends on `SwiduxRevenueCatPaywall` and `RevenueCatUI`, both pulled in transitively. Apps that don't ship paywall UI in the same target (for example, a tests-only target) can depend on the lower-level `SwiduxRevenueCatPaywall` product alone.
 
-## Types
+## Modifiers
 
-### `PaywallSheet`
+### `revenueCatPaywall(isPresented:onDismiss:)`
 
 ```swift
-public struct PaywallSheet: View {
-    public init(isPresented: Bool, onDismiss: @escaping () -> Void)
+extension View {
+    public func revenueCatPaywall(
+        isPresented: Binding<Bool>,
+        onDismiss: (() -> Void)? = nil
+    ) -> some View
 }
 ```
 
-Wraps `RevenueCatUI.PaywallView`.
+Attaches `RevenueCatUI.PaywallView` as a platform-appropriate sheet.
 
 - **iOS** — Presents in a `fullScreenCover` so the paywall takes the full screen.
 - **macOS** — Presents in a `sheet` sized to a 400×600 minimum.
 
-Place anywhere in the view tree; the body is `EmptyView` plus the platform-appropriate presentation modifier, so attaching via `.background` keeps it out of layout.
+Pass a real two-way binding; SwiftUI sets it to `false` on user dismissal. Build it from `PaywallState.isPresented` so the `set:` closure dispatches `.paywall(.dismiss)` and the plugin clears its presentation state.
 
-#### Initializer
+#### Parameters
 
-- `isPresented` — Whether the sheet is visible. Pass `store.paywall.isPresented` directly. The plugin owns this flag.
-- `onDismiss` — Called when the user dismisses the sheet. Dispatch `.paywall(.dismiss)` so the plugin clears its presentation state and triggers an entitlement refresh.
+- `isPresented` — Two-way binding to the paywall's visibility flag.
+- `onDismiss` — Optional callback fired after dismissal.
 
-### `CustomerCenterSheet`
+### `revenueCatCustomerCenter(isPresented:onDismiss:)`
 
 ```swift
-public struct CustomerCenterSheet: View {
-    public init(isPresented: Bool, onDismiss: @escaping () -> Void)
+extension View {
+    public func revenueCatCustomerCenter(
+        isPresented: Binding<Bool>,
+        onDismiss: (() -> Void)? = nil
+    ) -> some View
 }
 ```
 
-Adapts to platform support for RevenueCat's customer center.
+Attaches the customer center as a platform-appropriate sheet.
 
 - **iOS** — Presents `RevenueCatUI.CustomerCenterView` in a `sheet`.
-- **macOS** — Opens `itms-apps://apps.apple.com/account/subscriptions` via `NSWorkspace.shared.open` and immediately fires `onDismiss`. RevenueCatUI does not ship a customer center on macOS.
+- **macOS** — Opens `itms-apps://apps.apple.com/account/subscriptions` via `NSWorkspace.shared.open`, immediately clears the binding, and fires `onDismiss`. RevenueCatUI does not ship a customer center on macOS.
 
-#### Initializer
+#### Parameters
 
-- `isPresented` — Whether the sheet is visible. Pass `store.paywall.isCustomerCenterPresented` directly.
-- `onDismiss` — Called when the user dismisses the sheet (or, on macOS, immediately after the App Store URL is opened). Dispatch `.paywall(.dismissCustomerCenter)` so the plugin clears its presentation state.
+- `isPresented` — Two-way binding to the customer center's visibility flag.
+- `onDismiss` — Optional callback fired after dismissal (or, on macOS, after the App Store URL is opened).
 
 ### `revenueCatPaywall(state:send:)`
 
@@ -72,7 +78,7 @@ extension View {
 }
 ```
 
-Convenience modifier that attaches both `PaywallSheet` and `CustomerCenterSheet` and dispatches the matching dismiss action when each sheet closes.
+Convenience modifier that attaches both `revenueCatPaywall(isPresented:onDismiss:)` and `revenueCatCustomerCenter(isPresented:onDismiss:)` and dispatches the matching dismiss action when each sheet closes.
 
 #### Parameters
 
@@ -83,21 +89,21 @@ Convenience modifier that attaches both `PaywallSheet` and `CustomerCenterSheet`
 
 ```swift
 ContentView()
-    .background(
-        PaywallSheet(
-            isPresented: store.paywall.isPresented,
-            onDismiss: { store.send(.paywall(.dismiss)) }
+    .revenueCatPaywall(
+        isPresented: Binding(
+            get: { store.paywall.isPresented },
+            set: { if !$0 { store.send(.paywall(.dismiss)) } }
         )
     )
-    .background(
-        CustomerCenterSheet(
-            isPresented: store.paywall.isCustomerCenterPresented,
-            onDismiss: { store.send(.paywall(.dismissCustomerCenter)) }
+    .revenueCatCustomerCenter(
+        isPresented: Binding(
+            get: { store.paywall.isCustomerCenterPresented },
+            set: { if !$0 { store.send(.paywall(.dismissCustomerCenter)) } }
         )
     )
 ```
 
-Use the modifier when both sheets are needed; use the manual form when only one is needed or when you want to interleave other modifiers between them.
+Use the convenience modifier when both sheets are needed; use the primitives when only one is needed or when you want to interleave other modifiers between them.
 
 ## See Also
 

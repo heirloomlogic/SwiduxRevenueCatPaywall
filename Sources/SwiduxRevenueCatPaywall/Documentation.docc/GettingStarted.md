@@ -13,7 +13,7 @@ This package assumes you already use Swidux. If you don't, work through Swidux's
 **Xcode:** File > Add Package Dependencies, paste `https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall`. Add the products you need:
 
 - `SwiduxRevenueCatPaywall` — the `PaywallService` implementation and mock.
-- `SwiduxRevenueCatPaywallUI` — adds the `PaywallSheet` and `CustomerCenterSheet` views (depends on RevenueCatUI).
+- `SwiduxRevenueCatPaywallUI` — adds the `revenueCatPaywall` and `revenueCatCustomerCenter` view modifiers (depends on RevenueCatUI).
 
 **Package.swift:**
 
@@ -98,7 +98,7 @@ Gate features by reading `store.paywall.isGateSatisfied`. See <doc:HowToImplemen
 
 ## Attach the UI
 
-Add `PaywallSheet` and `CustomerCenterSheet` to a root view, driven by paywall state:
+Attach the `revenueCatPaywall` modifier to a root view, driven by paywall state:
 
 ```swift
 import SwiduxRevenueCatPaywallUI
@@ -127,13 +127,13 @@ Button("Export PDF") {
 }
 ```
 
-See <doc:HowToPresentTheUI> for manual wiring, customer-center triggering, and dismiss semantics.
+See <doc:HowToPresentTheUI> for manual wiring with the primitive modifiers, customer-center triggering, and dismiss semantics.
 
 ## Next Steps
 
 - <doc:HowToImplementService> — Detailed walkthrough of the service lifecycle and error handling.
 - <doc:HowToAddAPermanentLicense> — Add a lifetime entitlement alongside the subscription.
 - <doc:HowToPreviewAndTest> — Drive entitlement state from previews and tests.
-- <doc:HowToPresentTheUI> — Wire the bundled sheets and modifier.
+- <doc:HowToPresentTheUI> — Wire the bundled view modifiers.
 - <doc:PlatformBehavior> — Why iOS and macOS behave differently.
 - <doc:EntitlementMapping> — How RevenueCat entitlements map to `EntitlementSnapshot`.

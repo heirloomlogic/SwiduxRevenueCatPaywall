@@ -50,7 +50,7 @@ public init(
 - `entitlementID` — RevenueCat entitlement identifier that grants pro access. Surfaces as `EntitlementSnapshot.isPro` when active.
 - `permanentLicenseEntitlementID` — Optional secondary identifier for a lifetime / permanent entitlement. Surfaces as `EntitlementSnapshot.hasPermanentLicense` when active. Pass `nil` if the app has no separate lifetime SKU.
 
-> Important: Call `Purchases.configure(withAPIKey:)` before constructing the service. The service does not configure RevenueCat itself, and `Purchases.shared` traps if used unconfigured.
+> Important: Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:)`` before constructing the service. The service does not configure RevenueCat itself, and `Purchases.shared` traps if used unconfigured.
 
 #### `customerInfo() async throws -> EntitlementSnapshot`
 

@@ -13,8 +13,8 @@ import SwiduxPaywall
 /// `hasPermanentLicense`. Forwards `Purchases.shared.customerInfoStream` so the paywall plugin
 /// sees real-time entitlement changes.
 ///
-/// - Important: Call `Purchases.configure(withAPIKey:)` before constructing this service. The
-///   service does not configure RevenueCat itself.
+/// - Important: Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:)``
+///   before constructing this service. The service does not configure RevenueCat itself.
 public struct RevenueCatPaywallService: PaywallService {
     let entitlementID: String
     let permanentLicenseEntitlementID: String?

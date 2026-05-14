@@ -43,13 +43,13 @@ Add the products you need to your app target:
 
 `SwiduxRevenueCatPaywallUI` is optional — drop it if you don't need the bundled sheets.
 
-## Step 2: Configure RevenueCat at launch
+## Step 2: Configure the paywall at launch
 
-`RevenueCatPaywallService` calls into `Purchases.shared`. Configure the SDK before constructing the store:
+`RevenueCatPaywallService` calls into `Purchases.shared` under the hood. Configure the paywall before constructing the store:
 
 ```swift
 // MyApp.swift
-import RevenueCat
+import SwiduxRevenueCatPaywall
 import SwiftUI
 
 @main
@@ -57,7 +57,7 @@ struct MyApp: App {
     @State private var store: AppStore
 
     init() {
-        Purchases.configure(withAPIKey: "your_revenuecat_api_key")
+        RevenueCatPaywall.configure(apiKey: "your_revenuecat_api_key")
         _store = State(wrappedValue: AppStore.configured())
     }
 
@@ -67,7 +67,7 @@ struct MyApp: App {
 }
 ```
 
-> Important: `Purchases.shared` traps if used unconfigured. Configure it before anything that constructs `RevenueCatPaywallService`, including SwiftUI previews — guard preview-only code with `MockRevenueCatPaywallService` instead.
+> Important: `Purchases.shared` traps if used unconfigured. Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:)`` before anything that constructs `RevenueCatPaywallService`, including SwiftUI previews — guard preview-only code with `MockRevenueCatPaywallService` instead.
 
 ## Step 3: Construct the service
 

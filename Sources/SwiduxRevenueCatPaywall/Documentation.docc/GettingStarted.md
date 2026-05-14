@@ -26,13 +26,13 @@ This package assumes you already use Swidux. If you don't, work through Swidux's
 .product(name: "SwiduxRevenueCatPaywallUI", package: "SwiduxRevenueCatPaywall"),
 ```
 
-## Configure RevenueCat at launch
+## Configure the paywall at launch
 
-`RevenueCatPaywallService` calls into `Purchases.shared`. Configure the SDK before constructing the store:
+`RevenueCatPaywallService` calls into `Purchases.shared` under the hood. Configure the paywall before constructing the store:
 
 ```swift
 // MyApp.swift
-import RevenueCat
+import SwiduxRevenueCatPaywall
 import SwiftUI
 
 @main
@@ -40,7 +40,7 @@ struct MyApp: App {
     @State private var store: AppStore
 
     init() {
-        Purchases.configure(withAPIKey: "your_revenuecat_api_key")
+        RevenueCatPaywall.configure(apiKey: "your_revenuecat_api_key")
         _store = State(wrappedValue: AppStore.configured())
     }
 
@@ -49,6 +49,8 @@ struct MyApp: App {
     }
 }
 ```
+
+Pass `appUserID`, `userDefaults` (for app-group sharing with widgets), or `logLevel` if you need them — see ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:)``.
 
 ## Register the paywall plugin
 

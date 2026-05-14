@@ -29,17 +29,16 @@
 
 ## Quickstart
 
-Configure RevenueCat at launch, register the paywall plugin with `RevenueCatPaywallService`, and attach the bundled UI:
+Configure the paywall at launch, register the paywall plugin with `RevenueCatPaywallService`, and attach the bundled UI:
 
 ```swift
-import RevenueCat
 import Swidux
 import SwiduxPaywall
 import SwiduxRevenueCatPaywall
 import SwiduxRevenueCatPaywallUI
 
 // 1. App launch
-Purchases.configure(withAPIKey: "your_revenuecat_api_key")
+RevenueCatPaywall.configure(apiKey: "your_revenuecat_api_key")
 
 // 2. Plugin registration
 plugins.register(

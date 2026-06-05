@@ -20,6 +20,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Enable dev tooling
+        run: touch .dev-tooling
+
       - name: Build Documentation
         run: |
           swift package --allow-writing-to-directory ./docs \

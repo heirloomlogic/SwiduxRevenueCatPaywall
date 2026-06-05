@@ -1,4 +1,5 @@
 .build/
+.dev-tooling
 .DS_Store
 .swiftpm/
 Package.resolved

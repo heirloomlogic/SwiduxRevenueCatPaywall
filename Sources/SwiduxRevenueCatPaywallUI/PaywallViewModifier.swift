@@ -7,24 +7,29 @@ import RevenueCatUI
 import SwiduxPaywall
 import SwiftUI
 
+#if !os(iOS) && !os(macOS)
+#error("SwiduxRevenueCatPaywallUI supports iOS and macOS only.")
+#endif
+
 /// Attaches `RevenueCatUI.PaywallView` to the modified view, driven by a `Binding<Bool>`.
 ///
 /// Presents in a `fullScreenCover` on iOS and a 400×600-minimum `sheet` on macOS.
 struct RevenueCatPaywallSheetModifier: ViewModifier {
     @Binding var isPresented: Bool
+    let displayCloseButton: Bool
     let onDismiss: (() -> Void)?
 
     func body(content: Content) -> some View {
-        content
-            #if os(iOS)
-        .fullScreenCover(isPresented: $isPresented, onDismiss: onDismiss) {
-            PaywallView()
+        #if os(iOS)
+        content.fullScreenCover(isPresented: $isPresented, onDismiss: onDismiss) {
+            PaywallView(displayCloseButton: displayCloseButton)
         }
-            #else
-        .sheet(isPresented: $isPresented, onDismiss: onDismiss) {
-            PaywallView().frame(minWidth: 400, minHeight: 600)
+        #else
+        content.sheet(isPresented: $isPresented, onDismiss: onDismiss) {
+            PaywallView(displayCloseButton: displayCloseButton)
+                .frame(minWidth: 400, minHeight: 600)
         }
-            #endif
+        #endif
     }
 }
 
@@ -41,26 +46,41 @@ struct RevenueCatCustomerCenterSheetModifier: ViewModifier {
         }
         #else
         content.onChange(of: isPresented) { _, presented in
-            guard presented,
-                let url = URL(string: "itms-apps://apps.apple.com/account/subscriptions")
-            else { return }
-            NSWorkspace.shared.open(url)
+            guard presented else { return }
+            Self.openSubscriptionManagement()
             isPresented = false
             onDismiss?()
         }
         #endif
     }
+
+    #if os(macOS)
+    /// Opens App Store subscription management, falling back to the web URL when nothing on
+    /// the system claims the `itms-apps` scheme.
+    static func openSubscriptionManagement() {
+        let appStore = URL(string: "itms-apps://apps.apple.com/account/subscriptions")
+        if let appStore, NSWorkspace.shared.open(appStore) { return }
+        if let web = URL(string: "https://apps.apple.com/account/subscriptions") {
+            NSWorkspace.shared.open(web)
+        }
+    }
+    #endif
 }
 
 /// Composes paywall and customer-center sheets onto a view, driven by `PaywallState`.
 struct RevenueCatPaywallModifier: ViewModifier {
     let state: PaywallState
+    let displayCloseButton: Bool
     let send: (PaywallAction) -> Void
 
     func body(content: Content) -> some View {
         content
             .modifier(
-                RevenueCatPaywallSheetModifier(isPresented: paywallBinding, onDismiss: nil)
+                RevenueCatPaywallSheetModifier(
+                    isPresented: paywallBinding,
+                    displayCloseButton: displayCloseButton,
+                    onDismiss: nil
+                )
             )
             .modifier(
                 RevenueCatCustomerCenterSheetModifier(
@@ -102,28 +122,37 @@ extension View {
     ///     )
     /// ```
     ///
-    /// See ``revenueCatPaywall(state:send:)`` for the convenience overload that builds the
-    /// binding for you.
+    /// See ``revenueCatPaywall(state:displayCloseButton:send:)`` for the convenience overload
+    /// that builds the binding for you.
     ///
     /// - Parameters:
     ///   - isPresented: Two-way binding to the paywall's visibility flag.
+    ///   - displayCloseButton: Whether `PaywallView` shows a close button. Defaults to `true`;
+    ///     neither the iOS `fullScreenCover` nor the macOS `sheet` offers any other dismissal
+    ///     affordance, so pass `false` only for a hard paywall the user must purchase through.
     ///   - onDismiss: Optional callback fired after the sheet dismisses.
     /// - Returns: A view with the paywall sheet attached.
     public func revenueCatPaywall(
         isPresented: Binding<Bool>,
+        displayCloseButton: Bool = true,
         onDismiss: (() -> Void)? = nil
     ) -> some View {
         modifier(
-            RevenueCatPaywallSheetModifier(isPresented: isPresented, onDismiss: onDismiss)
+            RevenueCatPaywallSheetModifier(
+                isPresented: isPresented,
+                displayCloseButton: displayCloseButton,
+                onDismiss: onDismiss
+            )
         )
     }
 
     /// Attaches the RevenueCat customer center as a platform-appropriate sheet.
     ///
     /// On iOS, presents `RevenueCatUI.CustomerCenterView` in a `sheet`. On macOS, opens
-    /// `itms-apps://apps.apple.com/account/subscriptions` in App Store and immediately clears
-    /// the binding (so `isCustomerCenterPresented` does not stick `true`) before firing
-    /// `onDismiss`.
+    /// `itms-apps://apps.apple.com/account/subscriptions` in App Store (falling back to the
+    /// `https://apps.apple.com/account/subscriptions` web URL if nothing handles the scheme)
+    /// and immediately clears the binding (so `isCustomerCenterPresented` does not stick
+    /// `true`) before firing `onDismiss`.
     ///
     /// ```swift
     /// ContentView()
@@ -151,8 +180,8 @@ extension View {
 
     /// Attaches both the paywall and customer-center sheets driven by `PaywallState`.
     ///
-    /// Convenience modifier that composes ``revenueCatPaywall(isPresented:onDismiss:)`` and
-    /// ``revenueCatCustomerCenter(isPresented:onDismiss:)`` in one call. Each sheet's binding
+    /// Convenience modifier that composes ``revenueCatPaywall(isPresented:displayCloseButton:onDismiss:)``
+    /// and ``revenueCatCustomerCenter(isPresented:onDismiss:)`` in one call. Each sheet's binding
     /// dispatches the matching dismiss action when the system clears it: `.dismiss` for the
     /// paywall, `.dismissCustomerCenter` for the customer center.
     ///
@@ -163,15 +192,23 @@ extension View {
     ///
     /// - Parameters:
     ///   - state: The paywall slice from your store, typically `store.paywall`.
+    ///   - displayCloseButton: Whether `PaywallView` shows a close button. Defaults to `true`;
+    ///     neither the iOS `fullScreenCover` nor the macOS `sheet` offers any other dismissal
+    ///     affordance, so pass `false` only for a hard paywall the user must purchase through.
     ///   - send: A closure that lifts a `PaywallAction` into your root action and dispatches it,
     ///     for example `{ store.send(.paywall($0)) }`.
     /// - Returns: A view with both the paywall and customer-center sheets attached.
     public func revenueCatPaywall(
         state: PaywallState,
+        displayCloseButton: Bool = true,
         send: @escaping (PaywallAction) -> Void
     ) -> some View {
         modifier(
-            RevenueCatPaywallModifier(state: state, send: send)
+            RevenueCatPaywallModifier(
+                state: state,
+                displayCloseButton: displayCloseButton,
+                send: send
+            )
         )
     }
 }

@@ -15,7 +15,11 @@ struct RevenueCatPaywallModifierTests {
     @Test("Modifier does not dispatch on construction")
     func modifierDoesNotDispatchOnConstruction() {
         let recorder = ActionRecorder()
-        _ = RevenueCatPaywallModifier(state: PaywallState(isPresented: true), send: recorder.record)
+        _ = RevenueCatPaywallModifier(
+            state: PaywallState(isPresented: true),
+            displayCloseButton: true,
+            send: recorder.record
+        )
 
         #expect(recorder.snapshot.isEmpty)
     }
@@ -25,10 +29,12 @@ struct RevenueCatPaywallModifierTests {
         let recorder = ActionRecorder()
         let presented = RevenueCatPaywallModifier(
             state: PaywallState(isPresented: true),
+            displayCloseButton: true,
             send: recorder.record
         )
         let hidden = RevenueCatPaywallModifier(
             state: PaywallState(isPresented: false),
+            displayCloseButton: true,
             send: recorder.record
         )
 
@@ -41,6 +47,7 @@ struct RevenueCatPaywallModifierTests {
         let recorder = ActionRecorder()
         let modifier = RevenueCatPaywallModifier(
             state: PaywallState(isPresented: true),
+            displayCloseButton: true,
             send: recorder.record
         )
 
@@ -61,6 +68,7 @@ struct RevenueCatPaywallModifierTests {
         let recorder = ActionRecorder()
         let modifier = RevenueCatPaywallModifier(
             state: PaywallState(isCustomerCenterPresented: true),
+            displayCloseButton: true,
             send: recorder.record
         )
 

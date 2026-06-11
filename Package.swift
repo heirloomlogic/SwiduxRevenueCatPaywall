@@ -34,7 +34,7 @@ let package = Package(
         .library(name: "SwiduxRevenueCatPaywallUI", targets: ["SwiduxRevenueCatPaywallUI"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/HeirloomLogic/Swidux", branch: "main"),
+        .package(url: "https://github.com/HeirloomLogic/Swidux", from: "1.3.0"),
         .package(url: "https://github.com/RevenueCat/purchases-ios-spm", from: "5.0.0"),
     ] + devDependencies,
     targets: [

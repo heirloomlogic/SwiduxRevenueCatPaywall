@@ -23,6 +23,9 @@ public final class MockRevenueCatPaywallService: PaywallService, @unchecked Send
     private let initialSnapshot: EntitlementSnapshot
     private let lock = NSLock()
     private var continuation: AsyncStream<EntitlementSnapshot>.Continuation?
+    // Identifies the active stream so a stale stream's onTermination (cancellation, finish of a
+    // replaced stream) can't clear the continuation of a newer subscriber.
+    private var streamGeneration = 0
 
     /// Creates a mock with a starting entitlement state.
     ///
@@ -43,11 +46,26 @@ public final class MockRevenueCatPaywallService: PaywallService, @unchecked Send
     /// Returns a stream that yields the initial snapshot, then any value passed to ``send(_:)``.
     ///
     /// The stream stays open until ``finish()`` is called. Each call to this method replaces the
-    /// active continuation, so only the most recent subscriber receives subsequent ``send(_:)``
-    /// updates — request the stream once per test or preview.
+    /// active continuation: the previous stream is finished (so an earlier subscriber's
+    /// `for await` loop terminates instead of hanging), and only the most recent subscriber
+    /// receives subsequent ``send(_:)`` updates.
     public func customerInfoStream() -> AsyncStream<EntitlementSnapshot> {
         AsyncStream { continuation in
-            lock.withLock { self.continuation = continuation }
+            let (previous, generation) = lock.withLock {
+                streamGeneration += 1
+                let previous = self.continuation
+                self.continuation = continuation
+                return (previous, streamGeneration)
+            }
+            continuation.onTermination = { [weak self] _ in
+                guard let self else { return }
+                self.lock.withLock {
+                    if self.streamGeneration == generation { self.continuation = nil }
+                }
+            }
+            // Finish outside the lock: finishing fires the replaced stream's onTermination
+            // synchronously, which takes the lock itself.
+            previous?.finish()
             continuation.yield(initialSnapshot)
         }
     }
@@ -74,6 +92,8 @@ public final class MockRevenueCatPaywallService: PaywallService, @unchecked Send
     /// Call this when the test or preview is done observing entitlement transitions so iterators
     /// terminate cleanly. Subsequent calls to ``send(_:)`` are no-ops.
     public func finish() {
-        lock.withLock { continuation?.finish() }
+        // Finish outside the lock: it fires onTermination synchronously, which takes the lock.
+        let current = lock.withLock { continuation }
+        current?.finish()
     }
 }

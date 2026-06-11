@@ -92,7 +92,7 @@ func storeReactsToProPurchase() async {
 
 Each `send(_:)` pushes a snapshot through the active stream subscriber, which in this case is the plugin's `observeCustomerInfo` effect. The store's reducer applies `.customerInfoUpdated`, the observer tree fires for changed properties, and the assertion sees the new value.
 
-> Note: `customerInfoStream()` replaces its continuation on every call. If your test requests the stream more than once (rare — `observeCustomerInfo` is dispatched once), only the most recent subscriber receives `send(_:)` updates.
+> Note: `customerInfoStream()` replaces its continuation on every call. If your test requests the stream more than once (rare — `observeCustomerInfo` is dispatched once), the previous stream finishes — its `for await` loop terminates instead of hanging — and only the most recent subscriber receives `send(_:)` updates.
 
 ## Step 4: Driving transitions in a preview
 

@@ -22,8 +22,8 @@ Add both Swift packages to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/HeirloomLogic/Swidux", branch: "main"),
-    .package(url: "https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall", branch: "main"),
+    .package(url: "https://github.com/HeirloomLogic/Swidux", from: "1.3.0"),
+    .package(url: "https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall", from: "1.0.0"),
 ],
 ```
 
@@ -67,7 +67,7 @@ struct MyApp: App {
 }
 ```
 
-> Important: `Purchases.shared` traps if used unconfigured. Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:)`` before anything that constructs `RevenueCatPaywallService`, including SwiftUI previews — guard preview-only code with `MockRevenueCatPaywallService` instead.
+> Important: `Purchases.shared` traps if used unconfigured. Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before anything that constructs `RevenueCatPaywallService`, including SwiftUI previews — guard preview-only code with `MockRevenueCatPaywallService` instead.
 
 ## Step 3: Construct the service
 

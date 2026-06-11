@@ -8,12 +8,32 @@ on:
     branches:
       - "**"
 
+permissions:
+  contents: read
+
 jobs:
   test-macos:
     runs-on: macos-26
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Test
         run: swift test
+
+  # `swift test` on macOS never compiles the `#if os(iOS)` branches (fullScreenCover,
+  # CustomerCenterView), so build the package for an iOS destination to catch breaks there.
+  build-ios:
+    runs-on: macos-26
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Build (iOS Simulator)
+        run: |
+          xcodebuild build \
+            -skipMacroValidation \
+            -skipPackagePluginValidation \
+            -scheme SwiduxRevenueCatPaywall-Package \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .build/DerivedData

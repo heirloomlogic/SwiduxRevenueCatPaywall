@@ -19,7 +19,7 @@
 **Package.swift.**
 
 ```swift
-.package(url: "https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall", branch: "main"),
+.package(url: "https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall", from: "1.0.0"),
 ```
 
 ```swift

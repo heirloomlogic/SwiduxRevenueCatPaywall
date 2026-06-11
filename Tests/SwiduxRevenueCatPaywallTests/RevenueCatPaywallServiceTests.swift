@@ -147,6 +147,25 @@ struct MockRevenueCatPaywallServiceTests {
         #expect(terminal == nil)
     }
 
+    @Test("Requesting a second stream finishes the first")
+    func secondStreamFinishesFirst() async {
+        let mock = MockRevenueCatPaywallService(isPro: false)
+        var firstIterator = mock.customerInfoStream().makeAsyncIterator()
+        _ = await firstIterator.next()  // initial snapshot
+
+        var secondIterator = mock.customerInfoStream().makeAsyncIterator()
+
+        let firstTerminal = await firstIterator.next()
+        #expect(firstTerminal == nil, "Replaced stream must finish, not strand its subscriber.")
+
+        _ = await secondIterator.next()  // initial snapshot
+        mock.send(EntitlementSnapshot(isPro: true))
+        let updated = await secondIterator.next()
+        #expect(updated?.isPro == true, "Newest subscriber must keep receiving send(_:) updates.")
+
+        mock.finish()
+    }
+
     @Test("Restore returns configured snapshot")
     func restoreReturnsSnapshot() async throws {
         let mock = MockRevenueCatPaywallService(isPro: true, hasPermanentLicense: true)

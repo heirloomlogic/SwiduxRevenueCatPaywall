@@ -53,7 +53,7 @@ Returns the snapshot supplied at init. Updates pushed via ``MockRevenueCatPaywal
 
 Yields the initial snapshot, then every value passed to ``MockRevenueCatPaywallService/send(_:)``. The stream stays open until ``MockRevenueCatPaywallService/finish()`` is called.
 
-> Note: Each call to this method replaces the active continuation. Only the most recent subscriber receives subsequent ``MockRevenueCatPaywallService/send(_:)`` updates. Request the stream once per test or preview.
+> Note: Each call to this method replaces the active continuation and finishes the previous stream, so an earlier subscriber's `for await` loop terminates instead of hanging. Only the most recent subscriber receives subsequent ``MockRevenueCatPaywallService/send(_:)`` updates.
 
 #### `restorePurchases() async throws -> EntitlementSnapshot`
 

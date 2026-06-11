@@ -40,6 +40,8 @@ struct RootView: View {
 
 The closure receives a `PaywallAction` (`.dismiss` or `.dismissCustomerCenter`) and lifts it into your root action. Place the modifier on the topmost view that should host both sheets.
 
+Both paywall modifiers also accept `displayCloseButton:` (default `true`). The default presentation has no other way out — see <doc:PlatformBehavior> before turning it off.
+
 ## Step 2: Trigger the paywall from a feature
 
 Dispatch `.request(reason:)` with a short identifier describing why you're asking. `PaywallState.requestedReason` stores the value so the sheet (or analytics) can tailor its copy:

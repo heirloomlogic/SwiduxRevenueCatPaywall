@@ -18,7 +18,7 @@ This package assumes you already use Swidux. If you don't, work through Swidux's
 **Package.swift:**
 
 ```swift
-.package(url: "https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall", branch: "main"),
+.package(url: "https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall", from: "1.0.0"),
 ```
 
 ```swift
@@ -50,7 +50,7 @@ struct MyApp: App {
 }
 ```
 
-Pass `appUserID`, `userDefaults` (for app-group sharing with widgets), or `logLevel` if you need them — see ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:)``.
+Pass `appUserID`, `userDefaults` (for app-group sharing with widgets), `logLevel`, `entitlementVerification` (signed entitlement verification), or `purchasesAreCompletedBy`/`storeKitVersion` (app-completed purchases) if you need them — see ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``.
 
 ## Register the paywall plugin
 

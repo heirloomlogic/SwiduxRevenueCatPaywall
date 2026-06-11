@@ -38,4 +38,14 @@ struct ViewSmokeTests {
     func revenueCatPaywallConvenienceComposes() {
         _ = EmptyView().revenueCatPaywall(state: PaywallState()) { _ in }
     }
+
+    @Test("revenueCatPaywall accepts displayCloseButton on both overloads")
+    func revenueCatPaywallDisplayCloseButtonComposes() {
+        var flag = false
+        _ = EmptyView().revenueCatPaywall(
+            isPresented: Binding(get: { flag }, set: { flag = $0 }),
+            displayCloseButton: false
+        )
+        _ = EmptyView().revenueCatPaywall(state: PaywallState(), displayCloseButton: false) { _ in }
+    }
 }

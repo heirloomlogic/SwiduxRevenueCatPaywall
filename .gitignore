@@ -2,5 +2,8 @@
 .dev-tooling
 .DS_Store
 .swiftpm/
-Package.resolved
 xcuserdata/
+
+# Generated locally by Persnicket's bin/ci-lint-setup; CI creates them fresh each run.
+.swift-format
+.github/swift-format-matcher.json

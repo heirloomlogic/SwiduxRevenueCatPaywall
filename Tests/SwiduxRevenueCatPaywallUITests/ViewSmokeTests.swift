@@ -48,4 +48,17 @@ struct ViewSmokeTests {
         )
         _ = EmptyView().revenueCatPaywall(state: PaywallState(), displayCloseButton: false) { _ in }
     }
+
+    @Test("revenueCatPaywall accepts offeringIdentifier on both overloads")
+    func revenueCatPaywallOfferingIdentifierComposes() {
+        var flag = false
+        _ = EmptyView().revenueCatPaywall(
+            isPresented: Binding(get: { flag }, set: { flag = $0 }),
+            offeringIdentifier: "winback"
+        )
+        _ = EmptyView().revenueCatPaywall(
+            state: PaywallState(),
+            offeringIdentifier: "winback"
+        ) { _ in }
+    }
 }

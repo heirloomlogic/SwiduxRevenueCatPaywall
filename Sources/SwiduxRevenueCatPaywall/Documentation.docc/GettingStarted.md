@@ -70,7 +70,10 @@ extension Store where State == AppState, Action == AppAction {
                 state: \.paywall,
                 action: AppAction.paywall,
                 extractAction: { if case .paywall(let a) = $0 { return a }; return nil },
-                service: RevenueCatPaywallService(entitlementID: "pro")
+                service: ResilientPaywallService(
+                    base: RevenueCatPaywallService(entitlementID: "pro"),
+                    store: UserDefaultsKeyValueStore()
+                )
             )
         )
 
@@ -82,6 +85,8 @@ extension Store where State == AppState, Action == AppAction {
     }
 }
 ```
+
+`ResilientPaywallService` (from SwiduxPaywall) persists the last entitlement snapshot a successful read delivered. Without it, a slow or failing network at cold launch leaves `PaywallState` at its free default and gates paying users out of their features until the first successful read; with it, the last-known-good state holds until live data arrives, and the server stays authoritative — a genuine lapse is honoured on the next successful read. Wrap the RevenueCat service in it for production.
 
 Start the entitlement stream on the root view so the gate reflects RevenueCat's state from launch:
 

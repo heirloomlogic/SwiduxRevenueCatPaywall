@@ -4,18 +4,51 @@ on:
   push:
     branches:
       - main
+  pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
-concurrency:
-  group: pages-deploy
-  cancel-in-progress: true
+env:
+  # Pin the toolchain so runner-image rotations can't flip CI without a repo change.
+  DEVELOPER_DIR: /Applications/Xcode_26.5.app
 
 jobs:
-  documentation:
+  # PRs build the docs with diagnostics escalated so broken symbol links and stale
+  # references fail before merge instead of deploying silently broken pages.
+  check:
+    if: github.event_name == 'pull_request'
     runs-on: macos-26
+    concurrency:
+      group: docs-check-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Enable dev tooling
+        run: touch .dev-tooling
+
+      - name: Build Documentation (strict)
+        run: |
+          swift package --allow-writing-to-directory ./docs \
+            generate-documentation \
+            --target SwiduxRevenueCatPaywall \
+            --target SwiduxRevenueCatPaywallUI \
+            --enable-experimental-combined-documentation \
+            --disable-indexing \
+            --warnings-as-errors \
+            --output-path ./docs
+
+  documentation:
+    if: github.event_name != 'pull_request'
+    runs-on: macos-26
+    permissions:
+      contents: write # gh-pages deploy pushes to the repository
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1

@@ -35,7 +35,9 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/HeirloomLogic/Swidux", from: "1.3.0"),
-        .package(url: "https://github.com/RevenueCat/purchases-ios-spm", from: "5.0.0"),
+        // 5.55.0 introduced the public CustomerInfo/EntitlementInfo test initializers the test
+        // suite is built on — the package's true floor, not just the newest convenient tag.
+        .package(url: "https://github.com/RevenueCat/purchases-ios-spm", from: "5.55.0"),
     ] + devDependencies,
     targets: [
         .target(

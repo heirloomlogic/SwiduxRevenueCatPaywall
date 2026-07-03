@@ -10,14 +10,31 @@ import Testing
 
 @testable import SwiduxRevenueCatPaywall
 
-@Suite("RevenueCatPaywallService")
+/// Sentinel error the mock throws so tests can assert on a specific, unambiguous type.
+private struct TestError: Error {}
+
+// Mapping tests go through the static `makeSnapshot` rather than a service instance:
+// `RevenueCatPaywallService.init` preconditions on `Purchases.isConfigured`, and configuring the
+// real SDK is reserved for the single end-to-end test in RevenueCatPaywallConfigurationTests.
+@Suite("RevenueCatPaywallService entitlement mapping")
 struct RevenueCatPaywallServiceTests {
+    private func makeSnapshot(
+        entitlements: [String: EntitlementInfo],
+        entitlementID: String = "pro",
+        permanentLicenseEntitlementID: String? = nil
+    ) -> EntitlementSnapshot {
+        RevenueCatPaywallService.makeSnapshot(
+            from: makeCustomerInfo(entitlements: entitlements),
+            entitlementID: entitlementID,
+            permanentLicenseEntitlementID: permanentLicenseEntitlementID
+        )
+    }
+
     @Test("Active pro entitlement maps to isPro=true")
     func activeProMapsToIsPro() {
-        let service = RevenueCatPaywallService(entitlementID: "pro")
-        let info = makeCustomerInfo(entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)])
-
-        let snapshot = service.snapshot(from: info)
+        let snapshot = makeSnapshot(
+            entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)]
+        )
 
         #expect(snapshot.isPro)
         #expect(!snapshot.hasPermanentLicense)
@@ -25,20 +42,16 @@ struct RevenueCatPaywallServiceTests {
 
     @Test("Inactive pro entitlement maps to isPro=false")
     func inactiveProMapsToFalse() {
-        let service = RevenueCatPaywallService(entitlementID: "pro")
-        let info = makeCustomerInfo(entitlements: ["pro": makeEntitlement(id: "pro", isActive: false)])
-
-        let snapshot = service.snapshot(from: info)
+        let snapshot = makeSnapshot(
+            entitlements: ["pro": makeEntitlement(id: "pro", isActive: false)]
+        )
 
         #expect(!snapshot.isPro)
     }
 
     @Test("Missing pro entitlement maps to isPro=false")
     func missingProMapsToFalse() {
-        let service = RevenueCatPaywallService(entitlementID: "pro")
-        let info = makeCustomerInfo(entitlements: [:])
-
-        let snapshot = service.snapshot(from: info)
+        let snapshot = makeSnapshot(entitlements: [:])
 
         #expect(!snapshot.isPro)
         #expect(!snapshot.hasPermanentLicense)
@@ -46,12 +59,10 @@ struct RevenueCatPaywallServiceTests {
 
     @Test("Active permanent-license entitlement sets hasPermanentLicense=true")
     func activeLifetimeMapsToPermanentLicense() {
-        let service = RevenueCatPaywallService(entitlementID: "pro", permanentLicenseEntitlementID: "lifetime")
-        let info = makeCustomerInfo(entitlements: [
-            "lifetime": makeEntitlement(id: "lifetime", isActive: true)
-        ])
-
-        let snapshot = service.snapshot(from: info)
+        let snapshot = makeSnapshot(
+            entitlements: ["lifetime": makeEntitlement(id: "lifetime", isActive: true)],
+            permanentLicenseEntitlementID: "lifetime"
+        )
 
         #expect(!snapshot.isPro)
         #expect(snapshot.hasPermanentLicense)
@@ -59,38 +70,44 @@ struct RevenueCatPaywallServiceTests {
 
     @Test("Lifetime entitlement is ignored when no permanent-license ID is configured")
     func lifetimeIgnoredWhenNoIDConfigured() {
-        let service = RevenueCatPaywallService(entitlementID: "pro")
-        let info = makeCustomerInfo(entitlements: [
-            "lifetime": makeEntitlement(id: "lifetime", isActive: true)
-        ])
-
-        let snapshot = service.snapshot(from: info)
+        let snapshot = makeSnapshot(
+            entitlements: ["lifetime": makeEntitlement(id: "lifetime", isActive: true)]
+        )
 
         #expect(!snapshot.hasPermanentLicense)
     }
 
     @Test("Both pro and lifetime active sets both flags")
     func bothActiveSetsBothFlags() {
-        let service = RevenueCatPaywallService(entitlementID: "pro", permanentLicenseEntitlementID: "lifetime")
-        let info = makeCustomerInfo(entitlements: [
-            "pro": makeEntitlement(id: "pro", isActive: true),
-            "lifetime": makeEntitlement(id: "lifetime", isActive: true),
-        ])
-
-        let snapshot = service.snapshot(from: info)
+        let snapshot = makeSnapshot(
+            entitlements: [
+                "pro": makeEntitlement(id: "pro", isActive: true),
+                "lifetime": makeEntitlement(id: "lifetime", isActive: true),
+            ],
+            permanentLicenseEntitlementID: "lifetime"
+        )
 
         #expect(snapshot.isPro)
         #expect(snapshot.hasPermanentLicense)
     }
 
+    @Test("Pro active with lifetime absent sets only isPro when both IDs are configured")
+    func proActiveLifetimeAbsentSetsOnlyIsPro() {
+        let snapshot = makeSnapshot(
+            entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)],
+            permanentLicenseEntitlementID: "lifetime"
+        )
+
+        #expect(snapshot.isPro)
+        #expect(!snapshot.hasPermanentLicense)
+    }
+
     @Test("Inactive permanent-license entitlement keeps hasPermanentLicense=false")
     func inactiveLifetimeKeepsFalse() {
-        let service = RevenueCatPaywallService(entitlementID: "pro", permanentLicenseEntitlementID: "lifetime")
-        let info = makeCustomerInfo(entitlements: [
-            "lifetime": makeEntitlement(id: "lifetime", isActive: false)
-        ])
-
-        let snapshot = service.snapshot(from: info)
+        let snapshot = makeSnapshot(
+            entitlements: ["lifetime": makeEntitlement(id: "lifetime", isActive: false)],
+            permanentLicenseEntitlementID: "lifetime"
+        )
 
         #expect(!snapshot.hasPermanentLicense)
     }
@@ -132,6 +149,60 @@ struct MockRevenueCatPaywallServiceTests {
         #expect(updated?.isPro == true)
 
         mock.finish()
+    }
+
+    @Test("send updates the snapshot returned by customerInfo and restorePurchases")
+    func sendUpdatesCurrentSnapshot() async throws {
+        let mock = MockRevenueCatPaywallService(isPro: false)
+
+        mock.send(EntitlementSnapshot(isPro: true))
+
+        // The plugin refreshes via customerInfo() when the paywall is dismissed; a refresh after
+        // a simulated purchase must not regress the gate to the init-time state.
+        let refreshed = try await mock.customerInfo()
+        #expect(refreshed.isPro)
+        let restored = try await mock.restorePurchases()
+        #expect(restored.isPro)
+    }
+
+    @Test("A stream requested after send yields the current snapshot first")
+    func streamAfterSendYieldsCurrent() async {
+        let mock = MockRevenueCatPaywallService(isPro: false)
+
+        mock.send(EntitlementSnapshot(isPro: true))
+        var iterator = mock.customerInfoStream().makeAsyncIterator()
+
+        let first = await iterator.next()
+        #expect(first?.isPro == true)
+
+        mock.finish()
+    }
+
+    @Test("customerInfoError makes customerInfo throw; clearing it restores success")
+    func customerInfoErrorInjection() async throws {
+        let mock = MockRevenueCatPaywallService(isPro: true)
+
+        mock.customerInfoError = TestError()
+        await #expect(throws: TestError.self) {
+            try await mock.customerInfo()
+        }
+
+        mock.customerInfoError = nil
+        let snapshot = try await mock.customerInfo()
+        #expect(snapshot.isPro)
+    }
+
+    @Test("restoreError makes restorePurchases throw without affecting customerInfo")
+    func restoreErrorInjection() async throws {
+        let mock = MockRevenueCatPaywallService(isPro: true)
+
+        mock.restoreError = TestError()
+        await #expect(throws: TestError.self) {
+            try await mock.restorePurchases()
+        }
+
+        let snapshot = try await mock.customerInfo()
+        #expect(snapshot.isPro)
     }
 
     @Test("Mock finish terminates the stream")
@@ -241,6 +312,34 @@ struct MapStreamTests {
 
         let terminal = await iterator.next()
         #expect(terminal == nil)
+    }
+
+    @Test("A slow consumer sees the newest snapshot, not a stale backlog")
+    func slowConsumerSeesNewest() async {
+        let (upstream, continuation) = AsyncStream<CustomerInfo>.makeStream()
+        let mapped = RevenueCatPaywallService.mapStream(
+            upstream,
+            entitlementID: "pro",
+            permanentLicenseEntitlementID: nil
+        )
+
+        var iterator = mapped.makeAsyncIterator()
+
+        // Consume the first value so the mapping task is known to be running, then let two
+        // more arrive before the consumer returns: only the newest may survive the buffer.
+        continuation.yield(makeCustomerInfo(entitlements: [:]))
+        let first = await iterator.next()
+        #expect(first?.isPro == false)
+
+        continuation.yield(makeCustomerInfo(entitlements: ["pro": makeEntitlement(id: "pro", isActive: false)]))
+        continuation.yield(makeCustomerInfo(entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)]))
+        continuation.finish()
+
+        var received: [EntitlementSnapshot] = []
+        while let snapshot = await iterator.next() {
+            received.append(snapshot)
+        }
+        #expect(received.last?.isPro == true, "The newest snapshot must be delivered.")
     }
 }
 

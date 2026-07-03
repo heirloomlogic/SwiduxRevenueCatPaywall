@@ -11,6 +11,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pin the toolchain so runner-image rotations can't flip CI without a repo change.
+  DEVELOPER_DIR: /Applications/Xcode_26.5.app
+
 jobs:
   test-macos:
     runs-on: macos-26
@@ -21,19 +29,19 @@ jobs:
       - name: Test
         run: swift test
 
-  # `swift test` on macOS never compiles the `#if os(iOS)` branches (fullScreenCover,
-  # CustomerCenterView), so build the package for an iOS destination to catch breaks there.
-  build-ios:
+  # `swift test` on macOS never exercises the `#if os(iOS)` branches (fullScreenCover,
+  # CustomerCenterView), so run the suite against an iOS Simulator destination too.
+  test-ios:
     runs-on: macos-26
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Build (iOS Simulator)
+      - name: Test (iOS Simulator)
         run: |
-          xcodebuild build \
+          xcodebuild test \
             -skipMacroValidation \
             -skipPackagePluginValidation \
             -scheme SwiduxRevenueCatPaywall-Package \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination 'platform=iOS Simulator,name=iPhone 17' \
             -derivedDataPath .build/DerivedData

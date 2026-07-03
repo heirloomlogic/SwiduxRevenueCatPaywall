@@ -1,0 +1,60 @@
+{
+  "originHash" : "bbe117cc9f871cb85092079fee2cd9ce7b841bb82d461d96b41e914ff8233edb",
+  "pins" : [
+    {
+      "identity" : "persnicket",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/HeirloomLogic/Persnicket",
+      "state" : {
+        "revision" : "f87825b002519a55ea911e497d5a3cf60d6f1805",
+        "version" : "2.1.0"
+      }
+    },
+    {
+      "identity" : "purchases-ios-spm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/RevenueCat/purchases-ios-spm",
+      "state" : {
+        "revision" : "1de9b3d745b008be5b291b96041fd9644fbb48f5",
+        "version" : "5.80.1"
+      }
+    },
+    {
+      "identity" : "swidux",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/HeirloomLogic/Swidux",
+      "state" : {
+        "revision" : "142a6456e923e1c5989111ddc441c714c30bcf73",
+        "version" : "1.6.0"
+      }
+    },
+    {
+      "identity" : "swift-docc-plugin",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-docc-plugin",
+      "state" : {
+        "revision" : "647c708be89f834fa6a6d4945442793a77ddf5b6",
+        "version" : "1.5.0"
+      }
+    },
+    {
+      "identity" : "swift-docc-symbolkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-docc-symbolkit",
+      "state" : {
+        "revision" : "b45d1f2ed151d057b54504d653e0da5552844e34",
+        "version" : "1.0.0"
+      }
+    },
+    {
+      "identity" : "swift-syntax",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-syntax",
+      "state" : {
+        "revision" : "79e4b74a295b6eb74a8b585e3a39d29e70c1dbd1",
+        "version" : "603.0.2"
+      }
+    }
+  ],
+  "version" : 3
+}

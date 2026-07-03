@@ -23,12 +23,13 @@ The UI product depends on `SwiduxRevenueCatPaywall` and `RevenueCatUI`, both pul
 
 ## Modifiers
 
-### `revenueCatPaywall(isPresented:displayCloseButton:onDismiss:)`
+### `revenueCatPaywall(isPresented:offeringIdentifier:displayCloseButton:onDismiss:)`
 
 ```swift
 extension View {
     public func revenueCatPaywall(
         isPresented: Binding<Bool>,
+        offeringIdentifier: String? = nil,
         displayCloseButton: Bool = true,
         onDismiss: (() -> Void)? = nil
     ) -> some View
@@ -45,6 +46,7 @@ Pass a real two-way binding; SwiftUI sets it to `false` on user dismissal. Build
 #### Parameters
 
 - `isPresented` — Two-way binding to the paywall's visibility flag.
+- `offeringIdentifier` — Identifier of the RevenueCat offering to present, for a win-back or regional offer. Defaults to `nil`, which presents the dashboard's current offering. An unknown identifier or a failed fetch falls back to the current offering with a logged warning.
 - `displayCloseButton` — Whether `PaywallView` shows a close button. Defaults to `true`. Neither the iOS `fullScreenCover` nor the macOS `sheet` offers any other dismissal affordance, so pass `false` only for a hard paywall the user must purchase through.
 - `onDismiss` — Optional callback fired after dismissal.
 
@@ -69,23 +71,27 @@ Attaches the customer center as a platform-appropriate sheet.
 - `isPresented` — Two-way binding to the customer center's visibility flag.
 - `onDismiss` — Optional callback fired after dismissal (or, on macOS, after the App Store URL is opened).
 
-### `revenueCatPaywall(state:displayCloseButton:send:)`
+### `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:send:)`
 
 ```swift
 extension View {
     public func revenueCatPaywall(
         state: PaywallState,
+        offeringIdentifier: String? = nil,
         displayCloseButton: Bool = true,
         send: @escaping (PaywallAction) -> Void
     ) -> some View
 }
 ```
 
-Convenience modifier that attaches both `revenueCatPaywall(isPresented:displayCloseButton:onDismiss:)` and `revenueCatCustomerCenter(isPresented:onDismiss:)` and dispatches the matching dismiss action when each sheet closes.
+Convenience modifier that attaches both `revenueCatPaywall(isPresented:offeringIdentifier:displayCloseButton:onDismiss:)` and `revenueCatCustomerCenter(isPresented:onDismiss:)` and dispatches the matching dismiss action when each sheet closes.
+
+The two presentations are mutually exclusive; the paywall wins. While `state.isPresented` is `true` the customer-center binding reads `false`, and a request for either surface while the other is up dispatches `.dismissCustomerCenter` — the platform refuses simultaneous presentations, and this rule keeps `PaywallState` from holding a flag the platform ignored. See *Platform Behavior* in the `SwiduxRevenueCatPaywall` documentation.
 
 #### Parameters
 
 - `state` — The paywall slice from your store, typically `store.paywall`.
+- `offeringIdentifier` — Identifier of the RevenueCat offering to present. Defaults to `nil` (the dashboard's current offering); see the primitive modifier above.
 - `displayCloseButton` — Whether `PaywallView` shows a close button. Defaults to `true`; see the primitive modifier above.
 - `send` — A closure that lifts a `PaywallAction` into your root action and dispatches it through the store. Typically `{ store.send(.paywall($0)) }`.
 

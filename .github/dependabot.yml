@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  # Keeps the committed Package.resolved fresh so CI runs against reviewed,
+  # pinned dependency revisions instead of whatever resolves that day.
+  - package-ecosystem: swift
+    directory: /
+    schedule:
+      interval: weekly

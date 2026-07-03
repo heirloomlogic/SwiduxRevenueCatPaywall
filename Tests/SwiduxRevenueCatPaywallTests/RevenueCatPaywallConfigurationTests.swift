@@ -57,6 +57,48 @@ struct RevenueCatPaywallStoreKitVersionTests {
     }
 }
 
+@Suite("RevenueCatPaywall.storeKitSelection")
+struct RevenueCatPaywallStoreKitSelectionTests {
+    // `Purchases.configure` is once-per-process, so only one end-to-end configure path can run
+    // in this suite. The coupled purchasesAreCompletedBy/storeKitVersion forwarding is therefore
+    // covered here at the decision level, through the pure `storeKitSelection` function.
+    @Test("Completion override without a pinned version forwards the SDK default (StoreKit 2)")
+    func completedByWithoutVersionForwardsDefault() {
+        let selection = RevenueCatPaywall.storeKitSelection(
+            purchasesAreCompletedBy: .myApp,
+            storeKitVersion: nil
+        )
+        #expect(selection == .completedBy(.myApp, .storeKit2))
+    }
+
+    @Test("Completion override with a pinned version forwards both")
+    func completedByWithVersionForwardsBoth() {
+        let selection = RevenueCatPaywall.storeKitSelection(
+            purchasesAreCompletedBy: .revenueCat,
+            storeKitVersion: .storeKit1
+        )
+        #expect(selection == .completedBy(.revenueCat, .storeKit1))
+    }
+
+    @Test("A pinned version without a completion override forwards only the version")
+    func versionOnlyForwardsVersion() {
+        let selection = RevenueCatPaywall.storeKitSelection(
+            purchasesAreCompletedBy: nil,
+            storeKitVersion: .storeKit1
+        )
+        #expect(selection == .storeKitVersion(.storeKit1))
+    }
+
+    @Test("Neither parameter leaves the builder at SDK defaults")
+    func neitherLeavesSDKDefaults() {
+        let selection = RevenueCatPaywall.storeKitSelection(
+            purchasesAreCompletedBy: nil,
+            storeKitVersion: nil
+        )
+        #expect(selection == .sdkDefault)
+    }
+}
+
 @Suite("RevenueCatPaywall.configure", .serialized)
 struct RevenueCatPaywallConfigureTests {
     /// `Purchases.isConfigured` is process-wide state with no public deconfigure path. This test

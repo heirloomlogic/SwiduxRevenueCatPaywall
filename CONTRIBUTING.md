@@ -25,3 +25,7 @@ swift package resolve
 Note: `swift package reset` and Xcode's **Reset Package Caches** do **not** clear the evaluated-manifest cache — `purge-cache` is the specific verb. In Xcode, quit first, run `swift package purge-cache`, then reopen `Package.swift`.
 
 The sentinel is gitignored and must never be committed — committing it would defeat the gate and ship the dev dependencies to everyone who clones a tag.
+
+## About the committed Package.resolved
+
+`Package.resolved` is committed so CI and contributors build against reviewed, pinned dependency revisions (Dependabot keeps it fresh). It is resolved *with* the sentinel present, so it also pins the dev tooling. Consumers never read a dependency's resolved file, so this costs them nothing — but if you build without the sentinel, SwiftPM will locally rewrite the file without the dev pins. Don't commit that diff; create the sentinel and re-resolve instead.

@@ -11,16 +11,28 @@ Initial feature set, pending a first tagged release:
 
 - `RevenueCatPaywallService` — `PaywallService` conformer backed by `Purchases.shared`,
   mapping `CustomerInfo` to `EntitlementSnapshot` (pro + optional permanent-license
-  entitlements) with a live `customerInfoStream()`.
+  entitlements) with a live `customerInfoStream()`. The stream buffers only the newest
+  snapshot, and the initializer preconditions on `RevenueCatPaywall.configure` having run
+  (previews and tests use the mock) so a missing configure fails fast with a named fix.
 - `RevenueCatPaywall.configure(apiKey:...)` — package-level SDK configuration so app targets
   never import RevenueCat, with mirrored `LogLevel`, `EntitlementVerification`,
-  `PurchasesCompletedBy`, and `StoreKitVersion` options.
-- `MockRevenueCatPaywallService` — controllable mock for previews and tests; its stream stays
-  live across `send(_:)` updates and finishes a replaced subscriber instead of stranding it.
+  `PurchasesCompletedBy`, and `StoreKitVersion` options. Signed entitlement verification
+  defaults to `.informational`; log verbosity applies before the SDK configures so boot
+  diagnostics are captured.
+- `RevenueCatPaywall.logIn(appUserID:)` / `logOut()` — identity switching for authenticated
+  apps without importing RevenueCat in the app target.
+- `MockRevenueCatPaywallService` — controllable mock for previews and tests. `send(_:)`
+  updates the current snapshot (returned by `customerInfo()` / `restorePurchases()` and
+  yielded first by new streams) as well as the live stream, so a plugin refresh after a
+  simulated purchase never regresses the gate; `customerInfoError` / `restoreError` inject
+  failures; a replaced stream subscriber is finished instead of stranded.
 - `SwiduxRevenueCatPaywallUI` — `revenueCatPaywall` and `revenueCatCustomerCenter` view
   modifiers with platform-aware presentation (iOS `fullScreenCover`, sized macOS `sheet`,
-  App Store hand-off for subscription management on macOS) and a `displayCloseButton:`
-  escape hatch that defaults to dismissable.
+  App Store hand-off for subscription management on macOS), an `offeringIdentifier:`
+  parameter for presenting a specific offering (win-back, regional) with graceful fallback,
+  a `displayCloseButton:` escape hatch that defaults to dismissable, and mutual exclusion
+  between the two surfaces (the paywall wins) so a refused presentation can never strand
+  its state flag.
 
 ### Release checklist
 
@@ -28,3 +40,6 @@ Initial feature set, pending a first tagged release:
       snippets in `README.md` and the DocC guides) with a `from:` version requirement —
       now `from: "1.3.0"`. SwiftPM rejects branch-based dependencies when a package is
       itself resolved by version, so this was a prerequisite for the first tagged release.
+- [ ] Tag `1.0.0` as the first release — the install snippets in `README.md` and the DocC
+      guides already say `from: "1.0.0"`, so a `0.x` first tag would break every
+      copy-pasted requirement. After tagging, update `SECURITY.md`'s "pre-1.0" wording.

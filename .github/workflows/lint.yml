@@ -8,6 +8,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pin the toolchain so runner-image rotations can't flip CI without a repo change.
+  DEVELOPER_DIR: /Applications/Xcode_26.5.app
+
 jobs:
   swift-format-lint:
     runs-on: macos-26

@@ -56,6 +56,7 @@ The plugin could expose a single `isEntitled` flag. It exposes two so UI can bra
 The mapping rule applies identically whether the snapshot comes from `customerInfo()`, `customerInfoStream()`, or `restorePurchases()`. The service does not preserve any state across calls — every snapshot is computed afresh from the `CustomerInfo` in hand. This means:
 
 - Two consecutive identical `CustomerInfo` values produce two identical snapshots. The plugin's `.customerInfoUpdated` reducer no-ops cleanly when the snapshot is unchanged.
+- The stream buffers only the newest snapshot. Every yield is a complete entitlement state, so a consumer that falls behind skips straight to the latest value instead of replaying stale intermediates.
 - A subscription expiring server-side surfaces as a snapshot with `isPro = false` on the next stream yield. Your gate flips closed automatically.
 - A restore that recovers a lifetime purchase surfaces as `hasPermanentLicense = true` on the next call, even if the user's subscription was never restored.
 

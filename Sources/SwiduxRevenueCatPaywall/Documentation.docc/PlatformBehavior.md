@@ -28,9 +28,15 @@ The minimum frame is hard-coded; it is not exposed as a parameter. If your paywa
 
 The macOS branch clears the binding and fires `onDismiss` synchronously after `NSWorkspace.shared.open` so `PaywallState.isCustomerCenterPresented` does not get stuck `true`. The user returns from App Store to find the app's UI in its idle state. If nothing on the system handles the `itms-apps` scheme, the hand-off falls back to the `https://apps.apple.com/account/subscriptions` web URL in the default browser.
 
+## One surface at a time
+
+The composed `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:send:)` modifier never asks the platform to present the paywall and the customer center simultaneously — UIKit refuses a second presentation from the same host, which would leave the refused surface's state flag stuck `true` with nothing on screen. The paywall wins: while `PaywallState.isPresented` is `true` the customer-center binding reads `false`, and a request for either surface while the other is up dispatches `.dismissCustomerCenter` so state and screen stay in agreement.
+
+Apps wiring the primitive modifiers manually own this rule themselves; keep the two presentation flags mutually exclusive.
+
 ## Why no platform-override hooks
 
-Both modifiers are deliberately parameter-light: an `isPresented: Binding<Bool>`, an optional `onDismiss: () -> Void`, and — on the paywall only — a `displayCloseButton:` flag. There is no `paywallStyle:` or `presentationKind:` parameter.
+Both modifiers are deliberately parameter-light: an `isPresented: Binding<Bool>`, an optional `onDismiss: () -> Void`, and — on the paywall only — `displayCloseButton:` and `offeringIdentifier:`. There is no `paywallStyle:` or `presentationKind:` parameter.
 
 The reasoning: any consumer that needs to deviate from the chosen presentation already has the underlying RevenueCatUI types (`PaywallView`, `CustomerCenterView`) and SwiftUI's full presentation surface (`sheet`, `fullScreenCover`, `popover`, custom containers). The bundled modifiers exist to handle the 95% case in one line — when the 5% case applies, drop down to RevenueCatUI directly.
 
@@ -44,7 +50,8 @@ The configurable surface lives in `RevenueCatUI` and on the paywall plugin:
 - **Customer-center labels, sections, and actions** — configured in the RevenueCat dashboard. `RevenueCatUI.CustomerCenterView` renders whichever configuration the dashboard returns.
 - **Close button** — `displayCloseButton:` on the paywall modifiers. Defaults to `true`; pass `false` for a hard paywall.
 - **Presentation triggering** — driven by the plugin via `PaywallState.isPresented` and `isCustomerCenterPresented`. Your code chooses *when* to set them via `.request(reason:)` and `.presentCustomerCenter` actions.
-- **Dismiss behavior** — your `onDismiss` closures dispatch the matching paywall actions. Replace them if you need analytics hooks or cleanup beyond the default flow.
+- **Dismiss behavior** — dismiss actions are dispatched by the presentation bindings themselves (`.dismiss` for the paywall, `.dismissCustomerCenter` for the customer center). The primitive modifiers' `onDismiss` callbacks are purely additive — use them for analytics hooks or cleanup, not for dispatch.
+- **Offering selection** — `offeringIdentifier:` on the paywall modifiers presents a specific RevenueCat offering (a win-back or regional offer, for example). Omit it for the dashboard's current offering. An unknown identifier or a failed fetch falls back to the current offering with a logged warning, so a stale identifier degrades gracefully instead of dead-ending the purchase flow.
 
 ## See Also
 

@@ -17,6 +17,7 @@ struct RevenueCatPaywallModifierTests {
         let recorder = ActionRecorder()
         _ = RevenueCatPaywallModifier(
             state: PaywallState(isPresented: true),
+            offeringIdentifier: nil,
             displayCloseButton: true,
             send: recorder.record
         )
@@ -29,11 +30,13 @@ struct RevenueCatPaywallModifierTests {
         let recorder = ActionRecorder()
         let presented = RevenueCatPaywallModifier(
             state: PaywallState(isPresented: true),
+            offeringIdentifier: nil,
             displayCloseButton: true,
             send: recorder.record
         )
         let hidden = RevenueCatPaywallModifier(
             state: PaywallState(isPresented: false),
+            offeringIdentifier: nil,
             displayCloseButton: true,
             send: recorder.record
         )
@@ -42,11 +45,35 @@ struct RevenueCatPaywallModifierTests {
         #expect(hidden.paywallBinding.wrappedValue == false)
     }
 
+    @Test("customerCenterBinding reads false while the paywall is presented")
+    func customerCenterBindingYieldsToPaywall() {
+        let recorder = ActionRecorder()
+        let bothRequested = RevenueCatPaywallModifier(
+            state: PaywallState(isPresented: true, isCustomerCenterPresented: true),
+            offeringIdentifier: nil,
+            displayCloseButton: true,
+            send: recorder.record
+        )
+        let centerOnly = RevenueCatPaywallModifier(
+            state: PaywallState(isPresented: false, isCustomerCenterPresented: true),
+            offeringIdentifier: nil,
+            displayCloseButton: true,
+            send: recorder.record
+        )
+
+        #expect(
+            bothRequested.customerCenterBinding.wrappedValue == false,
+            "The paywall wins; the platform must never be asked to present both surfaces."
+        )
+        #expect(centerOnly.customerCenterBinding.wrappedValue == true)
+    }
+
     @Test("paywallBinding setter dispatches .dismiss only when set to false")
     func paywallBindingSetterDispatchesOnDismissal() {
         let recorder = ActionRecorder()
         let modifier = RevenueCatPaywallModifier(
             state: PaywallState(isPresented: true),
+            offeringIdentifier: nil,
             displayCloseButton: true,
             send: recorder.record
         )
@@ -68,6 +95,7 @@ struct RevenueCatPaywallModifierTests {
         let recorder = ActionRecorder()
         let modifier = RevenueCatPaywallModifier(
             state: PaywallState(isCustomerCenterPresented: true),
+            offeringIdentifier: nil,
             displayCloseButton: true,
             send: recorder.record
         )

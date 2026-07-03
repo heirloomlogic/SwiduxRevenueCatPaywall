@@ -28,7 +28,19 @@ public struct RevenueCatPaywallService: PaywallService {
     ///   - permanentLicenseEntitlementID: Optional secondary identifier for a lifetime / permanent
     ///     entitlement. Surfaces as `EntitlementSnapshot.hasPermanentLicense` when active. Pass
     ///     `nil` if the app has no separate lifetime SKU.
+    ///
+    /// - Precondition: `RevenueCatPaywall.configure(apiKey:)` has been called. Without it, every
+    ///   service method would trap inside the RevenueCat SDK at first use; failing here instead
+    ///   names the fix. Previews and tests should construct ``MockRevenueCatPaywallService``.
     public init(entitlementID: String, permanentLicenseEntitlementID: String? = nil) {
+        precondition(
+            Purchases.isConfigured,
+            """
+            Call RevenueCatPaywall.configure(apiKey:) before constructing \
+            RevenueCatPaywallService. Previews and tests should use \
+            MockRevenueCatPaywallService instead.
+            """
+        )
         self.entitlementID = entitlementID
         self.permanentLicenseEntitlementID = permanentLicenseEntitlementID
     }
@@ -83,12 +95,15 @@ public struct RevenueCatPaywallService: PaywallService {
 
     /// Wraps an upstream `CustomerInfo` stream and yields a mapped `EntitlementSnapshot` for every
     /// value the upstream produces. Cancelling the consuming task cancels the upstream iteration.
+    ///
+    /// Buffers only the newest snapshot: each yield is a complete entitlement state, so a slow
+    /// consumer should see the latest value rather than replay stale intermediate states.
     static func mapStream(
         _ upstream: AsyncStream<CustomerInfo>,
         entitlementID: String,
         permanentLicenseEntitlementID: String?
     ) -> AsyncStream<EntitlementSnapshot> {
-        AsyncStream { continuation in
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
                 for await info in upstream {
                     continuation.yield(

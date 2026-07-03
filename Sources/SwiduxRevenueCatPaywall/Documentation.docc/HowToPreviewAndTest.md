@@ -4,7 +4,7 @@ Drive entitlement state from SwiftUI previews and tests with `MockRevenueCatPayw
 
 ## Overview
 
-`MockRevenueCatPaywallService` is a `PaywallService` conformer that returns a configured snapshot from `customerInfo()` / `restorePurchases()` and exposes a streaming continuation through `send(_:)` and `finish()`. Plug it into the same `PaywallPlugin` you use in production. Drive entitlement transitions from your test or preview body.
+`MockRevenueCatPaywallService` is a `PaywallService` conformer that tracks a *current* snapshot the way the real service reflects RevenueCat's state: `send(_:)` updates it and pushes it through the stream, `customerInfo()` / `restorePurchases()` return it, and `finish()` tears the stream down. Plug it into the same `PaywallPlugin` you use in production. Drive entitlement transitions from your test or preview body.
 
 For the API reference, see <doc:MockServiceReference>.
 
@@ -90,7 +90,7 @@ func storeReactsToProPurchase() async {
 }
 ```
 
-Each `send(_:)` pushes a snapshot through the active stream subscriber, which in this case is the plugin's `observeCustomerInfo` effect. The store's reducer applies `.customerInfoUpdated`, the observer tree fires for changed properties, and the assertion sees the new value.
+Each `send(_:)` makes the snapshot current and pushes it through the active stream subscriber, which in this case is the plugin's `observeCustomerInfo` effect. The store's reducer applies `.customerInfoUpdated`, the observer tree fires for changed properties, and the assertion sees the new value. Because `customerInfo()` also returns the sent snapshot, the refresh the plugin dispatches when the paywall is dismissed sees the purchased state too — the gate never regresses to the init-time value mid-test.
 
 > Note: `customerInfoStream()` replaces its continuation on every call. If your test requests the stream more than once (rare — `observeCustomerInfo` is dispatched once), the previous stream finishes — its `for await` loop terminates instead of hanging — and only the most recent subscriber receives `send(_:)` updates.
 
@@ -115,7 +115,32 @@ Previews can drive transitions too — useful for verifying paywall sheet copy a
 
 The preview starts in the free state, runs the gated UI for two seconds, then transitions to pro — letting you eyeball both copy paths in one preview pane.
 
-## Step 5: Tear the stream down
+## Step 5: Simulating failures
+
+Set `customerInfoError` or `restoreError` to make the corresponding call throw — the plugin dispatches `.refreshFailed`, sets `store.paywall.error`, and your retry UI becomes testable:
+
+```swift
+@Test("Refresh failure surfaces an error the UI can retry from")
+func refreshFailureSurfacesError() async {
+    struct Offline: Error {}
+    let mock = MockRevenueCatPaywallService(isPro: false)
+    let store = AppStore.configured(paywallService: mock)
+
+    mock.customerInfoError = Offline()
+    store.send(.paywall(.refreshCustomerInfo))
+    await Task.yield()
+    #expect(store.paywall.error != nil)
+
+    mock.customerInfoError = nil
+    store.send(.paywall(.refreshCustomerInfo))
+    await Task.yield()
+    #expect(store.paywall.error == nil)
+}
+```
+
+The same hooks exercise `ResilientPaywallService`'s last-known-good fallback: wrap the mock, make `customerInfo()` throw, and assert the cached entitlement holds.
+
+## Step 6: Tear the stream down
 
 Call `finish()` at the end of a test to terminate the stream cleanly:
 

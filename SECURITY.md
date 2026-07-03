@@ -17,8 +17,9 @@ will be published and credited unless you prefer otherwise.
 ## Scope notes
 
 - The `apiKey` accepted by `RevenueCatPaywall.configure` is RevenueCat's *public* SDK key;
-  it is not a secret. Entitlement trust comes from RevenueCat's server — enable
-  `entitlementVerification: .informational` to detect tampered entitlement responses.
+  it is not a secret. Entitlement trust comes from RevenueCat's server — signed entitlement
+  verification (`entitlementVerification: .informational`) is on by default, so tampered
+  entitlement responses are detectable without locking users out.
 - This package contains no networking of its own; all network traffic is the RevenueCat
   SDK's. Vulnerabilities in the RevenueCat SDK should be reported to
   [RevenueCat](https://github.com/RevenueCat/purchases-ios/security).

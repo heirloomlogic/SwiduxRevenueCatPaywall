@@ -67,6 +67,8 @@ struct MyApp: App {
 }
 ```
 
+If users sign in after launch, switch the purchase provider to them with `RevenueCatPaywall.logIn(appUserID:)` and back with `RevenueCatPaywall.logOut()` — like `configure`, these wrappers keep the RevenueCat import out of your app target. The entitlement stream delivers the new user's entitlements automatically.
+
 > Important: `Purchases.shared` traps if used unconfigured. Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before anything that constructs `RevenueCatPaywallService`, including SwiftUI previews — guard preview-only code with `MockRevenueCatPaywallService` instead.
 
 ## Step 3: Construct the service
@@ -74,10 +76,16 @@ struct MyApp: App {
 Create the service with the entitlement identifier you set up in the RevenueCat dashboard:
 
 ```swift
+import SwiduxPaywall
 import SwiduxRevenueCatPaywall
 
-let service = RevenueCatPaywallService(entitlementID: "pro")
+let service = ResilientPaywallService(
+    base: RevenueCatPaywallService(entitlementID: "pro"),
+    store: UserDefaultsKeyValueStore()
+)
 ```
+
+`ResilientPaywallService` (from SwiduxPaywall) persists the last entitlement snapshot a successful read delivered, so a slow or failing network at cold launch never gates a paying user as free — the last-known-good state holds until live data arrives, and a genuine lapse is honoured on the next successful read. The bare `RevenueCatPaywallService` works too, but for production the resilient wrapper is the right default.
 
 If your app sells a separate lifetime SKU alongside a subscription, see <doc:HowToAddAPermanentLicense> for the dual-entitlement form.
 
@@ -100,7 +108,10 @@ extension Store where State == AppState, Action == AppAction {
                 state: \.paywall,
                 action: AppAction.paywall,
                 extractAction: { if case .paywall(let a) = $0 { return a }; return nil },
-                service: RevenueCatPaywallService(entitlementID: "pro")
+                service: ResilientPaywallService(
+                    base: RevenueCatPaywallService(entitlementID: "pro"),
+                    store: UserDefaultsKeyValueStore()
+                )
             )
         )
 
@@ -164,6 +175,8 @@ Button("Restore Purchases") {
 ```
 
 The plugin calls `RevenueCatPaywallService.restorePurchases()`, which forwards to `Purchases.shared.restorePurchases()`. On success the resulting snapshot flows through `.customerInfoUpdated` and updates the gate. On failure, `store.paywall.error` is set.
+
+> Warning: If you configured `purchasesAreCompletedBy: .myApp`, restore behaves differently: in that mode RevenueCat recommends `syncPurchases()` over `restorePurchases()`, because a restore can alias or transfer purchases between accounts. Handle restore in your own StoreKit code rather than dispatching `.restorePurchases`.
 
 ## Step 9: Handle errors
 

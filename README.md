@@ -40,13 +40,17 @@ import SwiduxRevenueCatPaywallUI
 // 1. App launch
 RevenueCatPaywall.configure(apiKey: "your_revenuecat_api_key")
 
-// 2. Plugin registration
+// 2. Plugin registration — ResilientPaywallService persists the last-known-good
+//    entitlement, so a flaky network at cold launch never gates a paid user as free.
 plugins.register(
     PaywallPlugin(
         state: \.paywall,
         action: AppAction.paywall,
         extractAction: { if case .paywall(let a) = $0 { return a }; return nil },
-        service: RevenueCatPaywallService(entitlementID: "pro")
+        service: ResilientPaywallService(
+            base: RevenueCatPaywallService(entitlementID: "pro"),
+            store: UserDefaultsKeyValueStore()
+        )
     )
 )
 
@@ -66,7 +70,7 @@ Full DocC reference at https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/d
 - **I sell a lifetime SKU alongside a subscription** — [How to Add a Permanent License](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/howtoaddapermanentlicense)
 - **I want to preview / test without RevenueCat** — [How to Preview and Test](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/howtopreviewandtest)
 - **I want to wire the bundled view modifiers** — [How to Present the UI](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/howtopresenttheui)
-- **I want the API** — [Service Reference](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/servicereference), [Mock Service Reference](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/mockservicereference), [UI Components Reference](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywallui/uicomponentsreference)
+- **I want the API** — [Service Reference](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/servicereference), [Mock Service Reference](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/mockservicereference), [UI Components Reference](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/uicomponentsreference)
 - **I want to understand the design choices** — [Platform Behavior](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/platformbehavior), [Entitlement Mapping](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/entitlementmapping)
 
 ## Requirements
@@ -74,7 +78,7 @@ Full DocC reference at https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/d
 - Swift 6.2 / Xcode 26+
 - iOS 18 / macOS 15
 - [Swidux](https://github.com/HeirloomLogic/Swidux) (`SwiduxPaywall` product)
-- [RevenueCat](https://github.com/RevenueCat/purchases-ios-spm) 5.0+
+- [RevenueCat](https://github.com/RevenueCat/purchases-ios-spm) 5.55+
 
 ## License
 

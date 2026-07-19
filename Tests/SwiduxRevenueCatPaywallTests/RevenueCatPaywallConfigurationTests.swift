@@ -100,6 +100,7 @@ struct RevenueCatPaywallStoreKitSelectionTests {
 }
 
 @Suite("RevenueCatPaywall.configure", .serialized)
+@MainActor
 struct RevenueCatPaywallConfigureTests {
     /// `Purchases.isConfigured` is process-wide state with no public deconfigure path. This test
     /// runs the full configure / repeat-configure sequence in a single test body so it doesn't

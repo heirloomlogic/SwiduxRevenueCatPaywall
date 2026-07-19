@@ -176,7 +176,7 @@ Button("Restore Purchases") {
 
 The plugin calls `RevenueCatPaywallService.restorePurchases()`, which forwards to `Purchases.shared.restorePurchases()`. On success the resulting snapshot flows through `.customerInfoUpdated` and updates the gate. On failure, `store.paywall.error` is set.
 
-> Warning: If you configured `purchasesAreCompletedBy: .myApp`, restore behaves differently: in that mode RevenueCat recommends `syncPurchases()` over `restorePurchases()`, because a restore can alias or transfer purchases between accounts. Handle restore in your own StoreKit code rather than dispatching `.restorePurchases`.
+> Note: If you configured `purchasesAreCompletedBy: .myApp`, the service handles restore correctly for you: it calls `syncPurchases()` instead of `restorePurchases()`, because in observer mode a restore can alias or transfer purchases between accounts. Dispatching `.restorePurchases` stays safe in either mode — no special-casing in your app code.
 
 ## Step 9: Handle errors
 

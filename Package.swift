@@ -71,6 +71,7 @@ let package = Package(
             dependencies: [
                 "SwiduxRevenueCatPaywallUI",
                 .product(name: "SwiduxPaywall", package: "Swidux"),
+                .product(name: "RevenueCat", package: "purchases-ios-spm"),
             ],
             plugins: devPlugins
         ),

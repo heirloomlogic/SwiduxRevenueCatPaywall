@@ -68,7 +68,7 @@ The stream buffers only the newest snapshot: each yield is a complete entitlemen
 
 #### `restorePurchases() async throws -> EntitlementSnapshot`
 
-Calls `Purchases.shared.restorePurchases()` and maps the result. Throws whatever the SDK throws on error.
+Maps the result of a restore. Reads `Purchases.shared.purchasesAreCompletedBy` live and branches: observer mode (`.myApp`) calls `syncPurchases()`, the default mode calls `restorePurchases()`. In observer mode the SDK's `restorePurchases()` can alias or transfer purchases between accounts, so the service uses `syncPurchases()` automatically — no special-casing in your app code. Throws whatever the SDK throws on error.
 
 The plugin's `.restorePurchases` action wraps this call and dispatches `.customerInfoUpdated` on success or `.refreshFailed` on error.
 

@@ -30,7 +30,7 @@ struct ResolvedOfferingPaywallView: View {
     let offeringIdentifier: String?
     let displayCloseButton: Bool
 
-    private enum Resolution {
+    enum Resolution {
         case loading
         case resolved(Offering)
         case currentOffering
@@ -41,7 +41,10 @@ struct ResolvedOfferingPaywallView: View {
     var body: some View {
         if let offeringIdentifier {
             resolvedContent
-                .task { resolution = await Self.resolve(offeringIdentifier) }
+                .task(id: offeringIdentifier) {
+                    resolution = .loading
+                    resolution = await Self.resolve(offeringIdentifier)
+                }
         } else {
             PaywallView(displayCloseButton: displayCloseButton)
         }
@@ -61,10 +64,27 @@ struct ResolvedOfferingPaywallView: View {
     }
 
     private static func resolve(_ identifier: String) async -> Resolution {
+        let fetched: Result<Offering?, any Error>
         do {
-            if let offering = try await Purchases.shared.offerings().offering(identifier: identifier) {
-                return .resolved(offering)
-            }
+            fetched = .success(try await Purchases.shared.offerings().offering(identifier: identifier))
+        } catch {
+            fetched = .failure(error)
+        }
+        return resolution(from: fetched, identifier: identifier)
+    }
+
+    /// Maps the result of the offering fetch to a `Resolution`, logging the fallback reason.
+    ///
+    /// Pure and separated from the SDK call so the fallback decision is unit-testable.
+    static func resolution(from fetched: Result<Offering?, any Error>, identifier: String) -> Resolution {
+        switch fetched {
+        case .success(let offering?):
+            return .resolved(offering)
+        case .success(nil):
+            // The `privacy: .public` below is deliberate: the identifier is app-supplied
+            // dashboard configuration and the error is SDK-generated diagnostics — no user data
+            // flows through this path, and the warning exists to diagnose paywall fallbacks from
+            // sysdiagnoses without a debugger.
             logger.warning(
                 """
                 No RevenueCat offering named '\(identifier, privacy: .public)' exists; \
@@ -72,7 +92,7 @@ struct ResolvedOfferingPaywallView: View {
                 RevenueCat dashboard.
                 """
             )
-        } catch {
+        case .failure(let error):
             logger.warning(
                 """
                 Fetching RevenueCat offering '\(identifier, privacy: .public)' failed \
@@ -140,9 +160,15 @@ struct RevenueCatCustomerCenterSheetModifier: ViewModifier {
 
     #if os(macOS)
     private func openAndClear() {
-        Self.openSubscriptionManagement()
-        isPresented = false
-        onDismiss?()
+        // onAppear/onChange run during view update, where writing `isPresented` back through the
+        // binding is undefined behavior ("Modifying state during view update"). Deferring to a
+        // main-actor Task also keeps the synchronous NSWorkspace call out of the render pass.
+        // Ordering — open, then clear, then onDismiss — is unchanged.
+        Task { @MainActor in
+            Self.openSubscriptionManagement()
+            isPresented = false
+            onDismiss?()
+        }
     }
 
     /// Opens App Store subscription management, falling back to the web URL when nothing on

@@ -74,16 +74,38 @@ public struct RevenueCatPaywallService: PaywallService {
 
     /// Restores the user's purchases through RevenueCat.
     ///
-    /// Calls `Purchases.shared.restorePurchases()` and maps the resulting customer info.
+    /// Branches on the SDK's live `purchasesAreCompletedBy` mode, read at call time: in observer
+    /// mode (`.myApp`) the SDK's `restorePurchases()` can alias or transfer purchases between app
+    /// user IDs, so this calls `syncPurchases()` — RevenueCat's documented equivalent there —
+    /// while the default (`.revenueCat`) mode calls `restorePurchases()`. Either way the resulting
+    /// customer info is mapped to a snapshot.
     ///
     /// - Returns: An `EntitlementSnapshot` reflecting any entitlements restored to the account.
-    /// - Throws: Any error propagated from `Purchases.shared.restorePurchases()`.
+    /// - Throws: Any error propagated from the underlying SDK call.
     public func restorePurchases() async throws -> EntitlementSnapshot {
-        let info = try await Purchases.shared.restorePurchases()
+        let info: CustomerInfo
+        switch Self.restoreStrategy(for: Purchases.shared.purchasesAreCompletedBy) {
+        case .sync: info = try await Purchases.shared.syncPurchases()
+        case .restore: info = try await Purchases.shared.restorePurchases()
+        }
         return snapshot(from: info)
     }
 
     // MARK: - Internal
+
+    /// Which SDK call ``restorePurchases()`` should make for a given completion mode.
+    enum RestoreStrategy: Equatable { case restore, sync }
+
+    /// Selects the restore call appropriate to the SDK's completion mode.
+    ///
+    /// In observer mode (`purchasesAreCompletedBy == .myApp`) the SDK's `restorePurchases()` can
+    /// alias or transfer purchases between app user IDs; RevenueCat documents `syncPurchases()` as
+    /// the correct equivalent there. Every other mode uses `restorePurchases()`. Kept pure so the
+    /// branch is unit-testable — `Purchases.configure` is once-per-process, so only one end-to-end
+    /// configure path can ever run in a test suite.
+    static func restoreStrategy(for completedBy: PurchasesAreCompletedBy) -> RestoreStrategy {
+        completedBy == .myApp ? .sync : .restore
+    }
 
     func snapshot(from info: CustomerInfo) -> EntitlementSnapshot {
         Self.makeSnapshot(

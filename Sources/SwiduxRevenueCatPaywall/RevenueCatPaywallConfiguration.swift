@@ -63,10 +63,10 @@ public enum RevenueCatPaywall {
         case revenueCat
         /// Your app makes the purchases and finishes the transactions; RevenueCat observes.
         ///
-        /// - Important: In this mode, prefer RevenueCat's `syncPurchases()` over a restore.
-        ///   ``RevenueCatPaywallService/restorePurchases()`` calls the SDK's
-        ///   `restorePurchases()`, which in observer mode can alias or transfer purchases
-        ///   between accounts in ways a sync would not.
+        /// - Note: In this mode ``RevenueCatPaywallService/restorePurchases()`` automatically
+        ///   uses the SDK's `syncPurchases()` instead of `restorePurchases()`, which in observer
+        ///   mode can alias or transfer purchases between accounts in ways a sync would not. Restore
+        ///   dispatches therefore remain safe.
         case myApp
 
         var rcValue: PurchasesAreCompletedBy {
@@ -95,9 +95,10 @@ public enum RevenueCatPaywall {
 
     /// Configures the underlying purchase provider.
     ///
-    /// Call once at app launch, on the main thread, before constructing
-    /// ``RevenueCatPaywallService``. Repeat calls are ignored (with a logged warning), which is
-    /// safe for SwiftUI `App` re-instantiation and previews.
+    /// Call once at app launch. Main-actor isolated so the `Purchases.isConfigured` check-then-act
+    /// is atomic — the guard and `Purchases.configure` run without an interleaving suspension
+    /// point. Call before constructing ``RevenueCatPaywallService``. Repeat calls are ignored (with
+    /// a logged warning), which is safe for SwiftUI `App` re-instantiation and previews.
     ///
     /// - Parameters:
     ///   - apiKey: RevenueCat public SDK key.
@@ -118,6 +119,7 @@ public enum RevenueCatPaywall {
     ///   - storeKitVersion: StoreKit version the SDK uses (and, with
     ///     `purchasesAreCompletedBy: .myApp`, the version your purchase code uses). Omit for
     ///     the SDK default (StoreKit 2).
+    @MainActor
     public static func configure(
         apiKey: String,
         appUserID: String? = nil,

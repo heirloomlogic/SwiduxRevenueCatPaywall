@@ -1,9 +1,11 @@
 name: Tests
 
+# PR-only. A `push: [main]` trigger re-ran these exact jobs against the commit the
+# PR had already tested, for a second set of macOS runner slots and no new signal.
+# The merge gate is unchanged — every PR still runs both legs before merge. What is
+# no longer covered: a direct push to `main` that bypasses a PR. Add branch
+# protection rather than restoring this trigger.
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - "**"
@@ -22,9 +24,17 @@ env:
 jobs:
   test-macos:
     runs-on: macos-26
+    # ~2x the observed max (3m27s). The GitHub default is six hours, which on macOS
+    # is a whole runner held by one hung test.
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # This job resolves and builds third-party SwiftPM dependencies after
+          # checkout. Persisted credentials would put the GITHUB_TOKEN inside their
+          # blast radius. Nothing here pushes.
+          persist-credentials: false
 
       - name: Test
         run: swift test
@@ -33,9 +43,14 @@ jobs:
   # CustomerCenterView), so run the suite against an iOS Simulator destination too.
   test-ios:
     runs-on: macos-26
+    # ~2x the observed max (6m23s).
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # See test-macos: third-party SwiftPM code runs after checkout, nothing pushes.
+          persist-credentials: false
 
       - name: Test (iOS Simulator)
         run: |

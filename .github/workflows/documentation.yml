@@ -1,5 +1,7 @@
 name: Documentation
 
+# Both triggers are kept deliberately: the `if:` guards below split them into two
+# jobs that never run on the same commit, so this is one run per commit already.
 on:
   push:
     branches:
@@ -20,12 +22,19 @@ jobs:
   check:
     if: github.event_name == 'pull_request'
     runs-on: macos-26
+    # ~3x the observed max (5m13s).
+    timeout-minutes: 15
     concurrency:
       group: docs-check-${{ github.ref }}
       cancel-in-progress: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The DocC command plugin and the resolved SwiftPM dependencies run after
+          # checkout. Persisted credentials would put the GITHUB_TOKEN inside their
+          # blast radius. This job does not push — only the deploy job below does.
+          persist-credentials: false
 
       - name: Enable dev tooling
         run: touch .dev-tooling
@@ -44,14 +53,25 @@ jobs:
   documentation:
     if: github.event_name != 'pull_request'
     runs-on: macos-26
+    # Estimated, not measured: this job is skipped on PRs, so no sampled run exists.
+    # Sized from the `check` job plus the deploy step. Tighten once a real duration
+    # is on record.
+    timeout-minutes: 20
     permissions:
       contents: write # gh-pages deploy pushes to the repository
     concurrency:
       group: pages-deploy
-      cancel-in-progress: true
+      cancel-in-progress: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Safe even though this job deploys: github-pages-deploy-action pushes with
+          # its own `token` input (defaults to github.token) and does not read the
+          # credentials actions/checkout would leave behind. Dropping them keeps the
+          # token out of reach of the DocC plugin and SwiftPM dependencies that run
+          # in the build step below.
+          persist-credentials: false
 
       - name: Enable dev tooling
         run: touch .dev-tooling
@@ -69,7 +89,7 @@ jobs:
             --output-path ./docs
 
       - name: Deploy to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@d92aa235d04922e8f08b40ce78cc5442fcfbfa2f # v4.8.0
+        uses: JamesIves/github-pages-deploy-action@fa24774553152dd7873cd16ebd8d959b010c5445 # v4.9.0
         with:
           branch: gh-pages
           folder: docs

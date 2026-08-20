@@ -1,9 +1,10 @@
 name: Lint
 
+# PR-only. See test.yml: the `push: [main]` trigger re-linted a commit the PR had
+# already linted. A direct push to `main` outside a PR is no longer linted; branch
+# protection is the fix for that, not this trigger.
 on:
   pull_request:
-  push:
-    branches: [main]
 
 permissions:
   contents: read
@@ -17,10 +18,22 @@ env:
   DEVELOPER_DIR: /Applications/Xcode_26.5.app
 
 jobs:
+  # Stays on macOS rather than moving to a cheaper Linux runner: the lint step shells
+  # out to `xcrun`, which reaches for the macOS toolchain, and this repo is public —
+  # Actions minutes are free here, so there is no cost argument to weigh against the
+  # rewrite. Revisit only if this package ever goes private.
   swift-format-lint:
     runs-on: macos-26
+    # ~8x the observed max (1m11s), sized for a slow `swift package resolve` rather
+    # than the lint itself. The GitHub default is six hours.
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # This job resolves SwiftPM dependencies and runs the Persnoop build-tool
+          # plugin after checkout. Persisted credentials would put the GITHUB_TOKEN
+          # inside their blast radius. Nothing here pushes.
+          persist-credentials: false
 
       - name: Setup swift-format lint
         run: |

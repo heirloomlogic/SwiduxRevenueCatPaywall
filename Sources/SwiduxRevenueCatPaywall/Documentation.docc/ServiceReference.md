@@ -64,11 +64,13 @@ Long-lived stream. Wraps `Purchases.shared.customerInfoStream` and yields a new 
 
 The stream finishes when the underlying RevenueCat stream finishes. The plugin's `.observeCustomerInfo` effect normally keeps it alive for the duration of the session; cancel by cancelling the consuming `Task`, which terminates the stream and tears down the bridge.
 
-The stream buffers only the newest snapshot: each yield is a complete entitlement state, so a slow consumer sees the latest value rather than replaying stale intermediate states.
+The stream yields only when the mapped snapshot changes. RevenueCat re-emits customer info on every refetch; forwarding those unchanged snapshots would supersede an in-flight refresh or restore in the plugin. It buffers only the newest snapshot: each yield is a complete entitlement state, so a slow consumer sees the latest value rather than replaying stale intermediate states.
+
+RevenueCat replays its latest customer info only to observers that were attached when it arrived, so dispatch `.refreshCustomerInfo` alongside `.observeCustomerInfo` to seed the state.
 
 #### `restorePurchases() async throws -> EntitlementSnapshot`
 
-Maps the result of a restore. Reads `Purchases.shared.purchasesAreCompletedBy` live and branches: observer mode (`.myApp`) calls `syncPurchases()`, the default mode calls `restorePurchases()`. In observer mode the SDK's `restorePurchases()` can alias or transfer purchases between accounts, so the service uses `syncPurchases()` automatically — no special-casing in your app code. Throws whatever the SDK throws on error.
+Maps the result of a restore. Reads `Purchases.shared.purchasesAreCompletedBy` live and branches: observer mode (`.myApp`) calls `syncPurchases()`, the default mode calls `restorePurchases()`. RevenueCat reserves `syncPurchases()` for apps that don't call its purchase methods, which is what observer mode means. Throws whatever the SDK throws on error.
 
 The plugin's `.restorePurchases` action wraps this call and dispatches `.customerInfoUpdated` on success or `.refreshFailed` on error.
 

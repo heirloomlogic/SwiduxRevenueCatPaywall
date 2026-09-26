@@ -96,7 +96,10 @@ struct ContentView: View {
 
     var body: some View {
         RootContent()
-            .task { store.send(.paywall(.observeCustomerInfo)) }
+            .task {
+                store.send(.paywall(.observeCustomerInfo))
+                store.send(.paywall(.refreshCustomerInfo))
+            }
     }
 }
 ```

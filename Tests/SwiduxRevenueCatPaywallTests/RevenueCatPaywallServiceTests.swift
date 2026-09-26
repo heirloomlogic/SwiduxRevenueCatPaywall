@@ -329,6 +329,33 @@ struct MapStreamTests {
         #expect(terminal == nil)
     }
 
+    @Test("Consecutive equal snapshots are delivered once")
+    func consecutiveDuplicatesDropped() async {
+        let (upstream, continuation) = AsyncStream<CustomerInfo>.makeStream()
+        let mapped = RevenueCatPaywallService.mapStream(
+            upstream,
+            entitlementID: "pro",
+            permanentLicenseEntitlementID: nil
+        )
+
+        var iterator = mapped.makeAsyncIterator()
+
+        // Each refetch is a distinct CustomerInfo (fresh request date) mapping to the same
+        // snapshot. Awaiting each delivery keeps the newest-only buffer out of the picture.
+        continuation.yield(makeCustomerInfo(entitlements: [:]))
+        #expect(await iterator.next() == EntitlementSnapshot())
+
+        continuation.yield(makeCustomerInfo(entitlements: [:]))
+        continuation.yield(makeCustomerInfo(entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)]))
+        #expect(await iterator.next() == EntitlementSnapshot(isPro: true), "The duplicate must be skipped.")
+
+        continuation.yield(makeCustomerInfo(entitlements: [:]))
+        #expect(await iterator.next() == EntitlementSnapshot(), "A later change back must still be delivered.")
+
+        continuation.finish()
+        #expect(await iterator.next() == nil)
+    }
+
     @Test("A slow consumer sees the newest snapshot, not a stale backlog")
     func slowConsumerSeesNewest() async {
         let (upstream, continuation) = AsyncStream<CustomerInfo>.makeStream()

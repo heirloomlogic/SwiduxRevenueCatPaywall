@@ -3,8 +3,14 @@
 //  SwiduxRevenueCatPaywall
 //
 
+import OSLog
 import RevenueCat
 import SwiduxPaywall
+
+private let logger = Logger(
+    subsystem: "com.heirloomlogic.SwiduxRevenueCatPaywall",
+    category: "service"
+)
 
 /// `PaywallService` conformer backed by RevenueCat's `Purchases.shared`.
 ///
@@ -12,6 +18,10 @@ import SwiduxPaywall
 /// `entitlementID` for `isPro` and the optional `permanentLicenseEntitlementID` for
 /// `hasPermanentLicense`. Forwards `Purchases.shared.customerInfoStream` so the paywall plugin
 /// sees real-time entitlement changes.
+///
+/// A response whose entitlement signature fails verification still maps normally — RevenueCat's
+/// `.informational` mode never locks users out — but logs a fault, so tampering surfaces in
+/// Console and sysdiagnoses.
 ///
 /// - Important: Call
 ///   ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
@@ -61,9 +71,13 @@ public struct RevenueCatPaywallService: PaywallService {
     /// `Purchases.shared.customerInfoStream`.
     ///
     /// Yields a new `EntitlementSnapshot` every time RevenueCat reports a change to the user's
-    /// customer info — purchase, refund, family-share update, sandbox renewal. The stream
+    /// entitlements — purchase, refund, family-share update, sandbox renewal. The stream
     /// finishes when the underlying RevenueCat stream finishes; the paywall plugin's
     /// `.observeCustomerInfo` effect normally keeps it alive for the duration of the session.
+    ///
+    /// RevenueCat replays its latest customer info only to observers that were attached when it
+    /// arrived, so a stream opened after launch may not yield until the next change. Dispatch
+    /// `.refreshCustomerInfo` alongside `.observeCustomerInfo` to seed the state.
     public func customerInfoStream() -> AsyncStream<EntitlementSnapshot> {
         Self.mapStream(
             Purchases.shared.customerInfoStream,
@@ -115,9 +129,12 @@ public struct RevenueCatPaywallService: PaywallService {
         )
     }
 
-    /// Wraps an upstream `CustomerInfo` stream and yields a mapped `EntitlementSnapshot` for every
-    /// value the upstream produces. Cancelling the consuming task cancels the upstream iteration.
+    /// Wraps an upstream `CustomerInfo` stream and yields a mapped `EntitlementSnapshot` whenever
+    /// the mapped value changes. Cancelling the consuming task cancels the upstream iteration.
     ///
+    /// Consecutive equal snapshots are dropped: RevenueCat re-emits on every refetch (its
+    /// equality includes the response date), and each redundant update would otherwise supersede
+    /// an in-flight refresh or restore in the paywall plugin, discarding that request's result.
     /// Buffers only the newest snapshot: each yield is a complete entitlement state, so a slow
     /// consumer should see the latest value rather than replay stale intermediate states.
     static func mapStream(
@@ -127,14 +144,16 @@ public struct RevenueCatPaywallService: PaywallService {
     ) -> AsyncStream<EntitlementSnapshot> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
+                var previous: EntitlementSnapshot?
                 for await info in upstream {
-                    continuation.yield(
-                        makeSnapshot(
-                            from: info,
-                            entitlementID: entitlementID,
-                            permanentLicenseEntitlementID: permanentLicenseEntitlementID
-                        )
+                    let snapshot = makeSnapshot(
+                        from: info,
+                        entitlementID: entitlementID,
+                        permanentLicenseEntitlementID: permanentLicenseEntitlementID
                     )
+                    guard snapshot != previous else { continue }
+                    previous = snapshot
+                    continuation.yield(snapshot)
                 }
                 continuation.finish()
             }
@@ -147,7 +166,17 @@ public struct RevenueCatPaywallService: PaywallService {
         entitlementID: String,
         permanentLicenseEntitlementID: String?
     ) -> EntitlementSnapshot {
-        EntitlementSnapshot(
+        if info.entitlements.verification == .failed {
+            // Deliberately public: the IDs are app configuration, not user data, and the fault
+            // exists to be found in a sysdiagnose.
+            logger.fault(
+                """
+                RevenueCat entitlement signature verification failed for '\(entitlementID, privacy: .public)'; \
+                the response may have been tampered with. Access is granted as reported.
+                """
+            )
+        }
+        return EntitlementSnapshot(
             isPro: info.entitlements[entitlementID]?.isActive == true,
             hasPermanentLicense: permanentLicenseEntitlementID.flatMap {
                 info.entitlements[$0]?.isActive

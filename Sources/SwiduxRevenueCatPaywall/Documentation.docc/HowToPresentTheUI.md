@@ -44,7 +44,7 @@ Both paywall modifiers also accept `displayCloseButton:` (default `true`). The d
 
 ## Step 2: Trigger the paywall from a feature
 
-Dispatch `.request(reason:)` with a short identifier describing why you're asking. `PaywallState.requestedReason` stores the value so the sheet (or analytics) can tailor its copy:
+Dispatch `.request(reason:)` with a short identifier describing why you're asking. `PaywallState.requestedReason` stores the value for your own code — analytics, or a custom paywall. The bundled RevenueCatUI paywall does not read it:
 
 ```swift
 Button("Export PDF") {
@@ -88,7 +88,7 @@ ContentView()
     )
 ```
 
-The convenience modifier `revenueCatPaywall(state:send:)` is exactly equivalent to this wiring.
+The convenience modifier `revenueCatPaywall(state:send:)` attaches this wiring and adds two rules the manual version lacks: the paywall and customer center never show at once, and the paywall closes itself when the user becomes entitled (see below).
 
 ## Step 5: Restore from inside the paywall
 
@@ -104,6 +104,8 @@ Button("Restore Purchases") {
 ## What happens on dismiss
 
 When the user dismisses the paywall, the plugin's `.dismiss` action clears `PaywallState.isPresented` and `requestedReason`, then dispatches `.refreshCustomerInfo` so the gate is reconciled — the user may have purchased while the sheet was open.
+
+RevenueCatUI dismisses the paywall itself after a purchase, but not after a restore. The convenience modifier closes it for you: when `PaywallState.isGateSatisfied` turns `true` while the paywall is up, it dispatches `.dismiss`. That relies on the live entitlement stream, so keep `.observeCustomerInfo` running. With the manual wiring, clear the binding yourself — otherwise a user who restores behind a hard paywall (`displayCloseButton: false`) has no way out.
 
 When the user dismisses the customer center, the plugin's `.dismissCustomerCenter` action clears `isCustomerCenterPresented`. No refresh is dispatched, since opening the customer center does not change entitlement state by itself; the live `customerInfoStream` from `Step 5` of <doc:HowToImplementService> picks up any subscription change RevenueCat reports asynchronously.
 

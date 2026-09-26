@@ -12,12 +12,12 @@ This article explains the reasoning behind those choices and what is fixed versu
 
 | Platform | Presentation | Reason |
 |---|---|---|
-| **iOS** | `fullScreenCover` | A subscription paywall is a primary moment, not an interrupt. `fullScreenCover` keeps the UI immersive, prevents accidental gesture-dismiss, and matches App Store conventions. |
+| **iOS** | `fullScreenCover` | A subscription paywall is a primary moment, not an interrupt. `fullScreenCover` keeps the UI immersive and prevents accidental gesture-dismiss. |
 | **macOS** | `sheet` with `frame(minWidth: 400, minHeight: 600)` | Mac sheets do not expand to fill the parent window. Without an explicit minimum size the paywall would render too small to legibly show plan options. The 400×600 minimum is roughly the size RevenueCatUI's templates assume. |
 
 Because neither presentation offers a system dismissal affordance (`fullScreenCover` has no swipe-to-dismiss; Mac sheets have no default close control), the modifiers show `PaywallView`'s close button by default. Pass `displayCloseButton: false` only for a hard paywall the user must purchase through — and make sure some other path out of that screen exists.
 
-The minimum frame is hard-coded; it is not exposed as a parameter. If your paywall layout needs more room on macOS, wrap the modified view in a parent that imposes a larger frame, or use `RevenueCatUI.PaywallView` directly inside a custom `sheet` modifier.
+The minimum frame is hard-coded; it is not exposed as a parameter. If your paywall layout needs more room on macOS, use `RevenueCatUI.PaywallView` directly inside a custom `sheet` modifier.
 
 ## revenueCatCustomerCenter
 
@@ -30,7 +30,7 @@ The macOS branch clears the binding and fires `onDismiss` synchronously after `N
 
 ## One surface at a time
 
-The composed `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:send:)` modifier never asks the platform to present the paywall and the customer center simultaneously — UIKit refuses a second presentation from the same host, which would leave the refused surface's state flag stuck `true` with nothing on screen. The paywall wins: while `PaywallState.isPresented` is `true` the customer-center binding reads `false`, and a request for either surface while the other is up dispatches `.dismissCustomerCenter` so state and screen stay in agreement.
+The composed `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:send:)` modifier never shows the paywall and the customer center at once — two modal surfaces competing for one host leave at most one on screen, and the other's state flag stuck `true` with nothing showing. The paywall wins: while `PaywallState.isPresented` is `true` the customer-center binding reads `false`, and a request for either surface while the other is up dispatches `.dismissCustomerCenter` so state and screen stay in agreement.
 
 Apps wiring the primitive modifiers manually own this rule themselves; keep the two presentation flags mutually exclusive.
 

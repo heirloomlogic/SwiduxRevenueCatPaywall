@@ -69,6 +69,8 @@ struct MyApp: App {
 
 If users sign in after launch, switch the purchase provider to them with `RevenueCatPaywall.logIn(appUserID:)` and back with `RevenueCatPaywall.logOut()` — like `configure`, these wrappers keep the RevenueCat import out of your app target. The entitlement stream delivers the new user's entitlements automatically.
 
+> Warning: A sign-out made offline keeps the previous user's entitlement. RevenueCat switches to a new anonymous user locally but cannot fetch its entitlements, so `logOut()` throws, no new snapshot arrives, and both `store.paywall` and the `ResilientPaywallService` cache (Step 3) keep the signed-out user's access — the cache across relaunches — until a read succeeds. On a shared device the next person inherits it. Swidux is adding a cache-clear hook to `ResilientPaywallService` for sign-out; until it ships, remove `.lastKnownEntitlement` from the key-value store you gave the decorator after signing out (`keyValueStore.removeValue(for: .lastKnownEntitlement)`), whether or not `logOut()` throws.
+
 > Important: `Purchases.shared` traps if used unconfigured. Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before anything that constructs `RevenueCatPaywallService`, including SwiftUI previews — guard preview-only code with `MockRevenueCatPaywallService` instead.
 
 ## Step 3: Construct the service

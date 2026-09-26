@@ -189,6 +189,16 @@ public enum RevenueCatPaywall {
     /// delivers the anonymous user's (typically empty) entitlements; no manual refresh is
     /// needed.
     ///
+    /// - Important: Signing out offline keeps the previous user's entitlement. RevenueCat
+    ///   switches to the new anonymous user locally, then fails to fetch its customer info, so
+    ///   this method throws and no snapshot arrives: `PaywallState` keeps the signed-out user's
+    ///   `isPro` / `hasPermanentLicense`, and a `ResilientPaywallService` cache keeps vouching for
+    ///   them — across relaunches — until a read succeeds. On a shared device the next person
+    ///   inherits that access while offline. Swidux is adding a cache-clear hook to
+    ///   `ResilientPaywallService` for exactly this; until it ships, remove
+    ///   `.lastKnownEntitlement` from the key-value store you gave the decorator after signing
+    ///   out, whether or not this method throws.
+    ///
     /// - Throws: Any error propagated from `Purchases.shared.logOut()`, including when the
     ///   current user is already anonymous.
     /// - Precondition: ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``

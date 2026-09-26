@@ -35,6 +35,21 @@ In prose:
 
 Every row above maps to a test case in `RevenueCatPaywallServiceTests` — the mapping is the package's contract.
 
+## Signature verification
+
+The rule above applies only to responses RevenueCat could vouch for. With `entitlementVerification: .informational` (the default), RevenueCat signature-verifies every entitlement response but still parses one that fails, marking it `VerificationResult.failed` and leaving the decision to the app. Apps never see `CustomerInfo`, so the service makes that decision:
+
+| Verification result | Effect on the snapshot |
+|---|---|
+| `.failed` — on the response, or on either configured entitlement | `isPro = false`, `hasPermanentLicense = false`, not labelled `.live`; a `.fault` is logged |
+| `.verified` | Mapped by the rule above |
+| `.verifiedOnDevice` — computed from StoreKit 2's signed transactions | Mapped by the rule above |
+| `.notRequested` — verification is `.disabled` | Mapped by the rule above |
+
+A failed response is labelled `.cache` when it answers `customerInfo()` or `restorePurchases()` and `.cacheSeed` when it arrives on the stream. Neither label is `.live`, so `ResilientPaywallService` does not persist it as the last-known-good entitlement, and a failed stream value cannot supersede a live result the plugin already holds.
+
+`.notRequested` is not a way around verification: with verification on, RevenueCat reports a response missing its signature as `.failed`. To opt out of enforcement entirely, configure `entitlementVerification: .disabled`, which trusts every response.
+
 ## Why missing == inactive
 
 Treating "absent" the same as "inactive" simplifies the mental model: feature code never has to handle a third state where the gate is "indeterminate." A missing entitlement always denies access. This matches what users expect — a user who never bought the SKU sees the paywall, the same as a user whose subscription lapsed.

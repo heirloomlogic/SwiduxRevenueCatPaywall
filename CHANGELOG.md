@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- A RevenueCat response whose entitlement signature verification failed no longer unlocks anything. Under the default `entitlementVerification: .informational`, RevenueCat still parses a tampered response and only marks it `.failed`, and apps never see that flag, so the service used to map a forged active entitlement to `isPro = true` and `ResilientPaywallService` cached it as last-known-good. The service now treats a `.failed` result (on the response or on a configured entitlement) as not entitled, never labels it `.live`, and logs a `.fault`. `.verified`, `.verifiedOnDevice`, and `.notRequested` (verification disabled) grant as before; `.disabled` remains the opt-out.
+
 ### Changed
 
-- Swidux is now required `from: "1.10.0"` (was `from: "1.3.0"`), and the committed `Package.resolved` pins Swidux 1.10.0 (was 1.6.0). The old floor was never built by anyone: CI only ever built the pinned 1.6.0, while consumers resolve the newest 1.x. The floor is now the version CI verifies.
+- Swidux is now required `from: "1.10.0"` (was `from: "1.3.0"`), and the committed `Package.resolved` pins Swidux 1.10.0 (was 1.6.0). The old floor was never built by anyone: CI only ever built the pinned 1.6.0, while consumers resolve the newest 1.x. The floor is now the version CI verifies, and the first with `EntitlementSnapshot.source`, which the service uses to keep untrusted snapshots out of the entitlement cache.
 
 ## Feature summary
 

@@ -41,11 +41,18 @@ public enum RevenueCatPaywall {
     /// Mirrors `RevenueCat.Configuration.EntitlementVerificationMode` so callers can enable
     /// signed entitlement verification without importing the RevenueCat module.
     public enum EntitlementVerification: Sendable {
-        /// No entitlement verification is performed.
+        /// No entitlement verification is performed. Every response is trusted as-is, including
+        /// one rewritten by an intercepting proxy the user has chosen to trust. This is the
+        /// opt-out from ``informational``.
         case disabled
-        /// Entitlement responses are signature-verified; a failed verification is reported on
-        /// the result but parsing does not fail, so you can observe tampering without locking
-        /// users out.
+        /// Entitlement responses are signature-verified, and this package acts on the result.
+        ///
+        /// RevenueCat itself only reports a failed verification — the response still parses —
+        /// and apps never see `CustomerInfo`, so ``RevenueCatPaywallService`` is where the result
+        /// is enforced: a response that failed verification grants neither `isPro` nor
+        /// `hasPermanentLicense`, is never labelled `.live` (so `ResilientPaywallService` does
+        /// not cache it), and logs a `.fault`. Responses verified by the server or on device
+        /// grant normally. Genuine responses still pass, so paying users are not locked out.
         case informational
 
         var rcValue: Configuration.EntitlementVerificationMode {
@@ -111,8 +118,9 @@ public enum RevenueCatPaywall {
     ///   - logLevel: SDK log verbosity. Defaults to `.info`. Applied before the SDK is
     ///     configured so configuration-time diagnostics are emitted at the requested level.
     ///   - entitlementVerification: Signed entitlement verification mode. Defaults to
-    ///     `.informational`, which detects tampered entitlement responses without ever locking
-    ///     users out; pass `.disabled` to skip verification entirely (the SDK default).
+    ///     `.informational`, under which a tampered entitlement response grants nothing (see
+    ///     ``EntitlementVerification/informational``); pass `.disabled` to skip verification
+    ///     entirely (the SDK default) and trust every response.
     ///   - purchasesAreCompletedBy: Who finishes purchase transactions. Pass `.myApp` when your
     ///     app runs its own StoreKit purchase code and RevenueCat should only observe. Omit for
     ///     the SDK default (`.revenueCat`).

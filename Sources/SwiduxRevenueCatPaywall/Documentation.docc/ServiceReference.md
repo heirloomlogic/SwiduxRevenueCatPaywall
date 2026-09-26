@@ -86,6 +86,8 @@ For every `CustomerInfo` the service receives:
 
 Both flags are checked independently against the same `CustomerInfo`. A user with both active subscription and lifetime entitlements gets both flags set. See <doc:EntitlementMapping> for the reasoning behind the truth table.
 
+A response that failed entitlement signature verification grants neither flag, is never labelled `.live` (so `ResilientPaywallService` does not cache it), and logs a `.fault`. See <doc:EntitlementMapping#Signature-verification>.
+
 ## See Also
 
 - <doc:HowToImplementService>

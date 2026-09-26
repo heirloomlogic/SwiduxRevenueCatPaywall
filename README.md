@@ -42,6 +42,7 @@ RevenueCatPaywall.configure(apiKey: "your_revenuecat_api_key")
 
 // 2. Plugin registration — ResilientPaywallService persists the last-known-good
 //    entitlement, so a flaky network at cold launch never gates a paid user as free.
+//    Back it with the Keychain, not UserDefaults: the cache vouches for pro offline.
 plugins.register(
     PaywallPlugin(
         state: \.paywall,
@@ -49,7 +50,7 @@ plugins.register(
         extractAction: { if case .paywall(let a) = $0 { return a }; return nil },
         service: ResilientPaywallService(
             base: RevenueCatPaywallService(entitlementID: "pro"),
-            store: UserDefaultsKeyValueStore()
+            store: KeychainKeyValueStore(service: "com.example.myapp")
         )
     )
 )
@@ -58,6 +59,8 @@ plugins.register(
 ContentView()
     .revenueCatPaywall(state: store.paywall) { store.send(.paywall($0)) }
 ```
+
+The entitlement cache belongs in `KeychainKeyValueStore`, never `UserDefaultsKeyValueStore`: a `UserDefaults` plist is user-editable and restorable from a doctored backup, so a forged cache entry would unlock pro whenever RevenueCat is unreachable. See Swidux's [Security Posture](https://heirloomlogic.github.io/Swidux/documentation/swidux/securityposture) for the threat model.
 
 Gate features by reading `store.paywall.isGateSatisfied`. Trigger the paywall with `store.send(.paywall(.request(reason: "...")))`. See the [Getting Started](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/gettingstarted) guide for the full walk-through.
 

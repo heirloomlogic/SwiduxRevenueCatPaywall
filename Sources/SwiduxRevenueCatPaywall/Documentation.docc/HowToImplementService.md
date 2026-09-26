@@ -76,16 +76,19 @@ If users sign in after launch, switch the purchase provider to them with `Revenu
 Create the service with the entitlement identifier you set up in the RevenueCat dashboard:
 
 ```swift
+import Swidux
 import SwiduxPaywall
 import SwiduxRevenueCatPaywall
 
 let service = ResilientPaywallService(
     base: RevenueCatPaywallService(entitlementID: "pro"),
-    store: UserDefaultsKeyValueStore()
+    store: KeychainKeyValueStore(service: "com.example.myapp")
 )
 ```
 
 `ResilientPaywallService` (from SwiduxPaywall) persists the last entitlement snapshot a successful read delivered, so a slow or failing network at cold launch never gates a paying user as free — the last-known-good state holds until live data arrives, and a genuine lapse is honoured on the next successful read. The bare `RevenueCatPaywallService` works too, but for production the resilient wrapper is the right default.
+
+Back the cache with `KeychainKeyValueStore`, never `UserDefaultsKeyValueStore`. The cache vouches for a paid entitlement while RevenueCat is unreachable, and a `UserDefaults` plist is user-editable and restorable from a doctored backup, so a forged entry would unlock pro offline; the Keychain is encrypted and not plist-editable. On an unsigned macOS development build the Keychain can be unreachable (`errSecMissingEntitlement`, −34018), in which case the store degrades to a cache miss rather than trapping. See Swidux's [Security Posture](https://heirloomlogic.github.io/Swidux/documentation/swidux/securityposture) for the full threat model.
 
 If your app sells a separate lifetime SKU alongside a subscription, see <doc:HowToAddAPermanentLicense> for the dual-entitlement form.
 
@@ -110,7 +113,7 @@ extension Store where State == AppState, Action == AppAction {
                 extractAction: { if case .paywall(let a) = $0 { return a }; return nil },
                 service: ResilientPaywallService(
                     base: RevenueCatPaywallService(entitlementID: "pro"),
-                    store: UserDefaultsKeyValueStore()
+                    store: KeychainKeyValueStore(service: "com.example.myapp")
                 )
             )
         )

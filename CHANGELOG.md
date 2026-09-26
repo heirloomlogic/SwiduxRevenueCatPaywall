@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - A RevenueCat response whose entitlement signature verification failed no longer unlocks anything. Under the default `entitlementVerification: .informational`, RevenueCat still parses a tampered response and only marks it `.failed`, and apps never see that flag, so the service used to map a forged active entitlement to `isPro = true` and `ResilientPaywallService` cached it as last-known-good. The service now treats a `.failed` result (on the response or on a configured entitlement) as not entitled, never labels it `.live`, and logs a `.fault`. `.verified`, `.verifiedOnDevice`, and `.notRequested` (verification disabled) grant as before; `.disabled` remains the opt-out.
+- The README quickstart, Getting Started, and How to Implement the Service backed `ResilientPaywallService` with `UserDefaultsKeyValueStore`, contradicting Swidux's threat model: a plist is user-editable, so a forged cache entry unlocked pro whenever RevenueCat was unreachable. Every snippet now uses `KeychainKeyValueStore(service:)` and links Swidux's Security Posture article.
 
 ### Changed
 

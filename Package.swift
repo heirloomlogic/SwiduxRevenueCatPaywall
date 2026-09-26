@@ -14,7 +14,9 @@ let package = Package(
         .library(name: "SwiduxRevenueCatPaywallUI", targets: ["SwiduxRevenueCatPaywallUI"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/HeirloomLogic/Swidux", from: "1.3.0"),
+        // The floor is the Swidux version CI builds and tests (the Package.resolved pin). A lower
+        // floor would advertise versions nobody has ever compiled this package against.
+        .package(url: "https://github.com/HeirloomLogic/Swidux", from: "1.10.0"),
         // 5.55.0 introduced the public CustomerInfo/EntitlementInfo test initializers the test
         // suite is built on — the package's true floor, not just the newest convenient tag.
         .package(url: "https://github.com/RevenueCat/purchases-ios-spm", from: "5.55.0"),

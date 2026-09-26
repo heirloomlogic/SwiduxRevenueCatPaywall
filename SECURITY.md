@@ -2,8 +2,7 @@
 
 ## Supported versions
 
-This package is pre-1.0. Only the latest tagged release (and `main`) receives security
-fixes.
+Only the latest tagged release (and `main`) receives security fixes.
 
 ## Reporting a vulnerability
 

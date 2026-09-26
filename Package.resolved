@@ -1,5 +1,5 @@
 {
-  "originHash" : "bbe117cc9f871cb85092079fee2cd9ce7b841bb82d461d96b41e914ff8233edb",
+  "originHash" : "62b94fce636fcf3840148fde210211ca091f48313ff5977cbeb75c7bded4d7d8",
   "pins" : [
     {
       "identity" : "persnicket",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/HeirloomLogic/Swidux",
       "state" : {
-        "revision" : "142a6456e923e1c5989111ddc441c714c30bcf73",
-        "version" : "1.6.0"
+        "revision" : "8f4a5579ff9de8efebc511d5d14690dad1f6e0af",
+        "version" : "1.10.0"
       }
     },
     {

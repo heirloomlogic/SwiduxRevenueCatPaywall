@@ -22,7 +22,7 @@ Add both Swift packages to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/HeirloomLogic/Swidux", from: "1.3.0"),
+    .package(url: "https://github.com/HeirloomLogic/Swidux", from: "1.10.0"),
     .package(url: "https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall", from: "1.0.0"),
 ],
 ```

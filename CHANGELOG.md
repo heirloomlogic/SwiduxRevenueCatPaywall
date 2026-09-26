@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Initial feature set, pending a first tagged release:
+### Changed
+
+- Swidux is now required `from: "1.10.0"` (was `from: "1.3.0"`), and the committed `Package.resolved` pins Swidux 1.10.0 (was 1.6.0). The old floor was never built by anyone: CI only ever built the pinned 1.6.0, while consumers resolve the newest 1.x. The floor is now the version CI verifies.
+
+## Feature summary
+
+1.0.0 was tagged on 2026-06-11 and 1.1.0 on 2026-07-03; per-release notes are on [GitHub Releases](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/releases). This section summarizes the package as it stands on `main`, including changes made since 1.1.0:
 
 - `RevenueCatPaywallService` — `PaywallService` conformer backed by `Purchases.shared`,
   mapping `CustomerInfo` to `EntitlementSnapshot` (pro + optional permanent-license
@@ -39,13 +45,3 @@ Initial feature set, pending a first tagged release:
   a `displayCloseButton:` escape hatch that defaults to dismissable, and mutual exclusion
   between the two surfaces (the paywall wins) so a refused presentation can never strand
   its state flag.
-
-### Release checklist
-
-- [x] Replace the `branch: "main"` Swidux dependency in `Package.swift` (and the install
-      snippets in `README.md` and the DocC guides) with a `from:` version requirement —
-      now `from: "1.3.0"`. SwiftPM rejects branch-based dependencies when a package is
-      itself resolved by version, so this was a prerequisite for the first tagged release.
-- [ ] Tag `1.0.0` as the first release — the install snippets in `README.md` and the DocC
-      guides already say `from: "1.0.0"`, so a `0.x` first tag would break every
-      copy-pasted requirement. After tagging, update `SECURITY.md`'s "pre-1.0" wording.

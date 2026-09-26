@@ -54,13 +54,13 @@ public init(
 
 #### `customerInfo() async throws -> EntitlementSnapshot`
 
-One-shot fetch. Calls `Purchases.shared.customerInfo()` and maps the result.
+One-shot fetch. Calls `Purchases.shared.customerInfo()` and maps the result. RevenueCat may answer from its cache; a result whose `requestDate` is more than five minutes old is labelled `.cache` instead of `.live` (see <doc:EntitlementMapping#Live-and-cached-customer-info>).
 
 Throws whatever the RevenueCat SDK throws (`ErrorCode.networkError`, `.offlineConnectionError`, etc.). The plugin catches the error and dispatches `.refreshFailed(message)`.
 
 #### `customerInfoStream() -> AsyncStream<EntitlementSnapshot>`
 
-Long-lived stream. Wraps `Purchases.shared.customerInfoStream` and yields a new `EntitlementSnapshot` for every change RevenueCat reports — purchase, refund, family-share update, sandbox renewal.
+Long-lived stream. Wraps `Purchases.shared.customerInfoStream` and yields a new `EntitlementSnapshot` for every change RevenueCat reports — purchase, refund, family-share update, sandbox renewal. The first value is RevenueCat's last-known customer info; when that is more than five minutes old it is labelled `.cacheSeed`, which bootstraps the plugin's gate without superseding a live result or renewing `ResilientPaywallService`'s cache.
 
 The stream finishes when the underlying RevenueCat stream finishes. The plugin's `.observeCustomerInfo` effect normally keeps it alive for the duration of the session; cancel by cancelling the consuming `Task`, which terminates the stream and tears down the bridge.
 

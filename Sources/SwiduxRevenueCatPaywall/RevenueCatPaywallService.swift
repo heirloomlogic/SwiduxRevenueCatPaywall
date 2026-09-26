@@ -19,6 +19,12 @@ import SwiduxPaywall
 /// and the adapter logs a `.fault`. See
 /// ``RevenueCatPaywall/EntitlementVerification/informational``.
 ///
+/// Customer info RevenueCat serves from its own cache — replayed when a stream starts, or
+/// returned by `customerInfo()` — is labelled `.cacheSeed` (stream) or `.cache` (one-shot reads)
+/// rather than `.live` once its `requestDate` is more than five minutes from now. Its
+/// entitlements still apply, but `ResilientPaywallService` does not re-stamp its cache as fresh
+/// from it, so `maxCacheAge` keeps measuring time since RevenueCat last reached the server.
+///
 /// - Important: Call
 ///   ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
 ///   before constructing this service. The service does not configure RevenueCat itself.
@@ -27,6 +33,12 @@ public struct RevenueCatPaywallService: PaywallService {
         subsystem: "com.heirloomlogic.SwiduxRevenueCatPaywall",
         category: "entitlements"
     )
+
+    /// How far a `CustomerInfo`'s `requestDate` may be from the device clock for the response to
+    /// count as just fetched. Matches the age at which RevenueCat itself treats its cached customer
+    /// info as stale in the foreground. Compared as an absolute value, so a future-dated response
+    /// cannot pass as fresh; a badly wrong device clock only costs `.live` labelling, never access.
+    static let liveResponseWindow: TimeInterval = 5 * 60
 
     let entitlementID: String
     let permanentLicenseEntitlementID: String?
@@ -156,7 +168,10 @@ public struct RevenueCatPaywallService: PaywallService {
     }
 
     /// Maps `info` to a snapshot, refusing to grant anything from a response that failed
-    /// entitlement signature verification.
+    /// entitlement signature verification, and labelling cached customer info as not live.
+    ///
+    /// A `requestDate` outside ``liveResponseWindow`` means RevenueCat served `info` from its
+    /// cache: the entitlements are mapped normally, but the snapshot carries `nonLiveSource`.
     ///
     /// A `.failed` result — on the response or on either entitlement read — means the response
     /// was altered in transit, so no part of it is trusted: the snapshot is free and carries
@@ -183,9 +198,11 @@ public struct RevenueCatPaywallService: PaywallService {
             )
             return EntitlementSnapshot(source: nonLiveSource)
         }
+        let isFresh = abs(info.requestDate.timeIntervalSinceNow) <= liveResponseWindow
         return EntitlementSnapshot(
             isPro: pro?.isActive == true,
-            hasPermanentLicense: permanentLicense?.isActive == true
+            hasPermanentLicense: permanentLicense?.isActive == true,
+            source: isFresh ? .live : nonLiveSource
         )
     }
 }

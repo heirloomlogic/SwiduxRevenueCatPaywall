@@ -206,6 +206,77 @@ struct EntitlementVerificationTests {
     }
 }
 
+// RevenueCat replays its last-known (often disk-cached) `CustomerInfo` when a stream starts, and
+// `customerInfo()` returns cached info by default. Labelling that `.live` would let
+// `ResilientPaywallService` re-stamp its own cache as fresh from RevenueCat's cache on every launch.
+@Suite("RevenueCatPaywallService response freshness")
+struct ResponseFreshnessTests {
+    private func makeSnapshot(
+        requestedAgo age: TimeInterval,
+        nonLiveSource: EntitlementSnapshot.Source
+    ) -> EntitlementSnapshot {
+        RevenueCatPaywallService.makeSnapshot(
+            from: makeCustomerInfo(
+                entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)],
+                requestDate: Date().addingTimeInterval(-age)
+            ),
+            entitlementID: "pro",
+            permanentLicenseEntitlementID: nil,
+            nonLiveSource: nonLiveSource
+        )
+    }
+
+    @Test("A just-fetched response is live")
+    func freshResponseIsLive() {
+        let snapshot = makeSnapshot(requestedAgo: 0, nonLiveSource: .cache)
+
+        #expect(snapshot.isPro)
+        #expect(snapshot.source == .live)
+    }
+
+    @Test(
+        "A cached response keeps its entitlements but takes the caller's non-live label",
+        arguments: [EntitlementSnapshot.Source.cache, .cacheSeed]
+    )
+    func cachedResponseIsNotLive(_ nonLiveSource: EntitlementSnapshot.Source) {
+        let snapshot = makeSnapshot(requestedAgo: 3600, nonLiveSource: nonLiveSource)
+
+        #expect(snapshot.isPro)
+        #expect(snapshot.source == nonLiveSource)
+    }
+
+    @Test("A cached stream replay does not renew ResilientPaywallService's cache")
+    func cachedStreamReplayIsNotCached() async {
+        let (upstream, continuation) = AsyncStream<CustomerInfo>.makeStream()
+        let store = InMemoryKeyValueStore()
+        let resilient = ResilientPaywallService(
+            base: StreamOnlyPaywallService(
+                stream: RevenueCatPaywallService.mapStream(
+                    upstream,
+                    entitlementID: "pro",
+                    permanentLicenseEntitlementID: nil
+                )
+            ),
+            store: store
+        )
+        var iterator = resilient.customerInfoStream().makeAsyncIterator()
+
+        continuation.yield(
+            makeCustomerInfo(
+                entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)],
+                requestDate: Date().addingTimeInterval(-3 * 24 * 3600)
+            )
+        )
+        let replay = await iterator.next()
+
+        #expect(replay?.isPro == true)
+        #expect(replay?.source == .cacheSeed)
+        #expect(store.value(.lastKnownEntitlement) == nil)
+
+        continuation.finish()
+    }
+}
+
 @Suite("MockRevenueCatPaywallService")
 struct MockRevenueCatPaywallServiceTests {
     @Test("Mock returns configured snapshot")
@@ -455,11 +526,12 @@ struct MapStreamTests {
 
 private func makeCustomerInfo(
     entitlements: [String: EntitlementInfo],
-    verification: VerificationResult = .notRequested
+    verification: VerificationResult = .notRequested,
+    requestDate: Date = Date()
 ) -> CustomerInfo {
     CustomerInfo(
         entitlements: EntitlementInfos(entitlements: entitlements, verification: verification),
-        requestDate: Date(),
+        requestDate: requestDate,
         firstSeen: Date(),
         originalAppUserId: "test-user"
     )

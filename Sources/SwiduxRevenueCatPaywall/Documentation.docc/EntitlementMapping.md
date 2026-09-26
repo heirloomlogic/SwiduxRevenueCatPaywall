@@ -75,6 +75,12 @@ The mapping rule applies identically whether the snapshot comes from `customerIn
 - A subscription expiring server-side surfaces as a snapshot with `isPro = false` on the next stream yield. Your gate flips closed automatically.
 - A restore that recovers a lifetime purchase surfaces as `hasPermanentLicense = true` on the next call, even if the user's subscription was never restored.
 
+## Live and cached customer info
+
+RevenueCat does not always hit the network. A new `customerInfoStream()` first replays the last customer info RevenueCat delivered — at cold launch, usually its disk cache — and `customerInfo()` returns cached info by default, even when stale. The service tells the two apart by `CustomerInfo.requestDate`, the server time of the response: within five minutes of the device clock (RevenueCat's own foreground staleness window) the snapshot is `.live`; otherwise it is `.cacheSeed` on the stream and `.cache` from `customerInfo()` or `restorePurchases()`.
+
+The flags are mapped exactly as for live info — only the provenance differs. That provenance keeps `ResilientPaywallService` from re-stamping its last-known-good as fresh from RevenueCat's cache on every launch, so its `maxCacheAge` keeps measuring time since RevenueCat last reached the server, and a replayed stream value cannot supersede a live result the plugin already holds. A device clock more than five minutes off only means responses are never labelled `.live`, so the Swidux cache is not refreshed; access is unaffected.
+
 ## See Also
 
 - <doc:ServiceReference>

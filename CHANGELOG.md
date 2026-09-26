@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Customer info RevenueCat serves from its own cache (a `requestDate` more than five minutes from the device clock) is labelled `.cacheSeed` on the stream and `.cache` from `customerInfo()` / `restorePurchases()` instead of `.live`. The entitlements are unchanged, but `ResilientPaywallService` no longer re-stamps its cache as fresh from RevenueCat's launch-time replay, so its `maxCacheAge` bound applies under RevenueCat too.
 - Swidux is now required `from: "1.10.0"` (was `from: "1.3.0"`), and the committed `Package.resolved` pins Swidux 1.10.0 (was 1.6.0). The old floor was never built by anyone: CI only ever built the pinned 1.6.0, while consumers resolve the newest 1.x. The floor is now the version CI verifies, and the first with `EntitlementSnapshot.source`, which the service uses to keep untrusted snapshots out of the entitlement cache.
 
 ## Feature summary

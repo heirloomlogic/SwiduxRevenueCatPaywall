@@ -71,6 +71,24 @@ If users sign in after launch, switch the purchase provider to them with `Revenu
 
 > Important: `Purchases.shared` traps if used unconfigured. Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before anything that constructs `RevenueCatPaywallService`, including SwiftUI previews — guard preview-only code with `MockRevenueCatPaywallService` instead.
 
+### App-owned StoreKit 2 purchases
+
+When the app owns purchases, configure with `purchasesAreCompletedBy: .myApp` and the StoreKit version the app uses. For StoreKit 2 purchases made outside the bundled paywall, report the original result before finishing a verified transaction:
+
+```swift
+import StoreKit
+import SwiduxRevenueCatPaywall
+
+let result = try await product.purchase()
+try await RevenueCatPaywall.recordPurchase(result)
+
+if case .success(.verified(let transaction)) = result {
+    await transaction.finish()
+}
+```
+
+The package exposes only StoreKit types. Apps do not import RevenueCat. The bundled paywall performs this reporting and finishing sequence when you pass `RevenueCatPaywallPurchaseLogic`; see <doc:HowToPresentTheUI>.
+
 ## Step 3: Construct the service
 
 Create the service with the entitlement identifier you set up in the RevenueCat dashboard:
@@ -179,9 +197,9 @@ Button("Restore Purchases") {
 .disabled(store.paywall.isLoading)
 ```
 
-The plugin calls `RevenueCatPaywallService.restorePurchases()`, which forwards to `Purchases.shared.restorePurchases()`. On success the resulting snapshot flows through `.customerInfoUpdated` and updates the gate. On failure, `store.paywall.error` is set.
+The plugin calls `RevenueCatPaywallService.restorePurchases()`, which forwards to RevenueCat's user-initiated `restorePurchases()` flow in both completion modes. That flow refreshes the App Store receipt before posting transactions, so it can recover subscriptions missing from the device receipt. On success the resulting snapshot flows through `.customerInfoUpdated` and updates the gate. On failure, `store.paywall.error` is set.
 
-> Note: If you configured `purchasesAreCompletedBy: .myApp`, the service calls `syncPurchases()` instead of `restorePurchases()`, since RevenueCat reserves `syncPurchases()` for apps that don't call its purchase methods. Be aware that the bundled `SwiduxRevenueCatPaywallUI` paywall does not support this mode yet — see ``RevenueCatPaywall/PurchasesCompletedBy/myApp``.
+`syncPurchases()` remains useful for background migration after login, but it reads only the receipt already on the device and can alias or transfer purchases under the RevenueCat project's restore behavior. It is not the implementation of the explicit Restore Purchases action.
 
 ## Step 9: Handle errors
 

@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `RevenueCatPaywall.recordPurchase(_:)` reports an app-owned StoreKit 2 purchase without exposing RevenueCat to the app target.
+- Both `revenueCatPaywall` modifiers accept `RevenueCatPaywallPurchaseLogic` for app-owned StoreKit 2 purchase and restore operations.
+
 ### Fixed
 
 - The composed `revenueCatPaywall(state:send:)` modifier closes the paywall after a restore that leaves the user entitled, once RevenueCatUI reports the restore complete. RevenueCatUI dismisses after a purchase but not after a restore, so a restoring user stayed on the paywall — with no way out behind a hard paywall (`displayCloseButton: false`).
@@ -14,6 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Presenting a paywall with an `offeringIdentifier:` no longer traps when `Purchases` is unconfigured (previews, tests); it defers to `PaywallView`'s own handling.
 - The offering-fetch warning logs the SDK error's description as private; RevenueCat embeds request paths, which carry the app user ID.
 - `MockRevenueCatPaywallService` streams fan out to every subscriber, like RevenueCat's own stream. Previously each new `customerInfoStream()` call finished the previous one, so a second consumer (a second store, or `ResilientPaywallService` alongside the plugin) silently cut the first off.
+- The bundled paywall always supplies RevenueCatUI's required purchase and restore handlers in `.myApp` mode. Missing app purchase logic now produces a configuration error when the user acts instead of a Release-build `fatalError` at presentation.
+- `RevenueCatPaywallService.restorePurchases()` uses the user-initiated `restorePurchases()` SDK flow in every completion mode. The previous `.myApp` branch called `syncPurchases()`, which does not refresh the App Store receipt and cannot restore a subscription missing from the device receipt.
 
 ### Changed
 
@@ -23,7 +30,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `configure(apiKey:…)` trims surrounding whitespace from the API key, and asserts in Debug and logs a fault in Release for an empty key or a secret (`sk_`) key.
 - A response whose entitlement signature fails verification logs a fault. It still grants access, as RevenueCat's `.informational` mode intends.
 - An `offeringIdentifier:` already in RevenueCat's offerings cache renders immediately instead of behind a progress indicator, which now has an accessibility label.
-- `restorePurchases()` reads the SDK's `purchasesAreCompletedBy` mode live and calls `syncPurchases()` in observer mode (`.myApp`), `restorePurchases()` otherwise.
 - `RevenueCatPaywall.configure` is main-actor isolated so the `Purchases.isConfigured` check-then-configure is atomic.
 - `offeringIdentifier:` is re-resolved when it changes, showing a progress indicator while it reloads.
 - The macOS customer-center hand-off defers its binding write to a main-actor task, avoiding state mutation during a view update.
@@ -31,7 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Documentation
 
-- `purchasesAreCompletedBy: .myApp` documents that the bundled paywall UI does not support it yet.
+- `purchasesAreCompletedBy: .myApp` now documents the bundled StoreKit 2 purchase and restore wiring, the reporting-before-finishing order, and the limits of background purchase synchronization.
 - Setup guides dispatch `.refreshCustomerInfo` alongside `.observeCustomerInfo`: a new entitlement stream stays silent until RevenueCat delivers customer info, which it may skip at launch when its cache is fresh.
 - The store-driven test examples in *How to Preview and Test* are `@MainActor` and wait with a bounded poll; as written they did not compile, and a single `Task.yield()` let them fail intermittently.
 - Corrected the entitlement-verification default (`.informational` is the SDK default), the restore rationale, and the claims that the manual modifier wiring is equivalent to the composed modifier.

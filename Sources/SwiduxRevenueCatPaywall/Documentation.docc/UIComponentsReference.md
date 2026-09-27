@@ -23,7 +23,7 @@ The UI product depends on `SwiduxRevenueCatPaywall` and `RevenueCatUI`, both pul
 
 ## Modifiers
 
-### `revenueCatPaywall(isPresented:offeringIdentifier:displayCloseButton:onDismiss:)`
+### `revenueCatPaywall(isPresented:offeringIdentifier:displayCloseButton:purchaseLogic:onDismiss:)`
 
 ```swift
 extension View {
@@ -31,6 +31,7 @@ extension View {
         isPresented: Binding<Bool>,
         offeringIdentifier: String? = nil,
         displayCloseButton: Bool = true,
+        purchaseLogic: RevenueCatPaywallPurchaseLogic? = nil,
         onDismiss: (() -> Void)? = nil
     ) -> some View
 }
@@ -48,6 +49,7 @@ Pass a real two-way binding; SwiftUI sets it to `false` on user dismissal. Build
 - `isPresented` — Two-way binding to the paywall's visibility flag.
 - `offeringIdentifier` — Identifier of the RevenueCat offering to present, for a win-back or regional offer. Defaults to `nil`, which presents the dashboard's current offering. An unknown identifier or a failed fetch falls back to the current offering with a logged warning.
 - `displayCloseButton` — Whether `PaywallView` shows a close button. Defaults to `true`. Neither the iOS `fullScreenCover` nor the macOS `sheet` offers any other dismissal affordance, so pass `false` only for a hard paywall the user must purchase through.
+- `purchaseLogic` — App-owned StoreKit 2 purchase and restore operations for `purchasesAreCompletedBy: .myApp`. Leave `nil` when RevenueCat completes purchases.
 - `onDismiss` — Optional callback fired after dismissal.
 
 ### `revenueCatCustomerCenter(isPresented:onDismiss:)`
@@ -71,7 +73,7 @@ Attaches the customer center as a platform-appropriate sheet.
 - `isPresented` — Two-way binding to the customer center's visibility flag.
 - `onDismiss` — Optional callback fired after dismissal (or, on macOS, after the App Store URL is opened).
 
-### `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:send:)`
+### `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:purchaseLogic:send:)`
 
 ```swift
 extension View {
@@ -79,12 +81,13 @@ extension View {
         state: PaywallState,
         offeringIdentifier: String? = nil,
         displayCloseButton: Bool = true,
+        purchaseLogic: RevenueCatPaywallPurchaseLogic? = nil,
         send: @escaping (PaywallAction) -> Void
     ) -> some View
 }
 ```
 
-Convenience modifier that attaches both `revenueCatPaywall(isPresented:offeringIdentifier:displayCloseButton:onDismiss:)` and `revenueCatCustomerCenter(isPresented:onDismiss:)` and dispatches the matching dismiss action when each sheet closes.
+Convenience modifier that attaches both `revenueCatPaywall(isPresented:offeringIdentifier:displayCloseButton:purchaseLogic:onDismiss:)` and `revenueCatCustomerCenter(isPresented:onDismiss:)` and dispatches the matching dismiss action when each sheet closes.
 
 The two presentations are mutually exclusive; the paywall wins. While `state.isPresented` is `true` the customer-center binding reads `false`, and a request for either surface while the other is up dispatches `.dismissCustomerCenter`, so `PaywallState` never holds a flag for a surface that isn't showing. After a restore inside the paywall, the modifier also dispatches `.dismiss` once `state.isGateSatisfied` is `true`, because RevenueCatUI does not dismiss after a restore. See *Platform Behavior* in the `SwiduxRevenueCatPaywall` documentation.
 
@@ -93,6 +96,7 @@ The two presentations are mutually exclusive; the paywall wins. While `state.isP
 - `state` — The paywall slice from your store, typically `store.paywall`.
 - `offeringIdentifier` — Identifier of the RevenueCat offering to present. Defaults to `nil` (the dashboard's current offering); see the primitive modifier above.
 - `displayCloseButton` — Whether `PaywallView` shows a close button. Defaults to `true`; see the primitive modifier above.
+- `purchaseLogic` — App-owned StoreKit 2 purchase and restore operations for `purchasesAreCompletedBy: .myApp`. Leave `nil` when RevenueCat completes purchases.
 - `send` — A closure that lifts a `PaywallAction` into your root action and dispatches it through the store. Typically `{ store.send(.paywall($0)) }`.
 
 #### Manual wiring

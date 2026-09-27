@@ -42,6 +42,36 @@ The closure receives a `PaywallAction` (`.dismiss` or `.dismissCustomerCenter`) 
 
 Both paywall modifiers also accept `displayCloseButton:` (default `true`). The default presentation has no other way out — see <doc:PlatformBehavior> before turning it off.
 
+### App-owned StoreKit 2 purchases
+
+If RevenueCat is configured with `purchasesAreCompletedBy: .myApp` and `storeKitVersion: .storeKit2`, pass the app's StoreKit operations as `purchaseLogic`:
+
+```swift
+import StoreKit
+import SwiduxRevenueCatPaywallUI
+
+let purchaseLogic = RevenueCatPaywallPurchaseLogic(
+    purchase: { product in
+        try await product.purchase()
+    },
+    restore: {
+        try await AppStore.sync()
+    }
+)
+
+ContentView()
+    .revenueCatPaywall(
+        state: store.paywall,
+        purchaseLogic: purchaseLogic
+    ) { action in
+        store.send(.paywall(action))
+    }
+```
+
+RevenueCatUI requires both handlers in `.myApp` mode. The modifier always supplies them, so presenting without `purchaseLogic` returns a configuration error when the user tries to purchase or restore instead of triggering RevenueCatUI's Release-build trap. The purchase closure returns the original `Product.PurchaseResult`; the package reports it to RevenueCat and then finishes a verified transaction. A pending purchase stays open with a pending message. The restore closure refreshes StoreKit first, and the package then synchronizes RevenueCat and reports whether it found an active subscription or non-subscription.
+
+The bundled observer-mode UI accepts StoreKit 2 products. A `.myApp` configuration pinned to StoreKit 1 can still use `RevenueCatPaywallService`, but it needs a custom paywall because `RevenueCatPaywallPurchaseLogic` does not expose `SKProduct` or `SKPaymentTransaction`.
+
 ## Step 2: Trigger the paywall from a feature
 
 Dispatch `.request(reason:)` with a short identifier describing why you're asking. `PaywallState.requestedReason` stores the value for your own code — analytics, or a custom paywall. The bundled RevenueCatUI paywall does not read it:
@@ -52,7 +82,7 @@ Button("Export PDF") {
 }
 ```
 
-The plugin sets `PaywallState.isPresented = true`. The `revenueCatPaywall` modifier observes the change and presents `RevenueCatUI.PaywallView`.
+The plugin sets `PaywallState.isPresented = true`. The `revenueCatPaywall` modifier observes the change and presents `RevenueCatUI.PaywallView` with the correct RevenueCat-owned or app-owned handlers.
 
 ## Step 3: Trigger the customer center
 

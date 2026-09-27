@@ -23,8 +23,8 @@ struct RevenueCatPaywallServiceTests {
         entitlements: [String: EntitlementInfo],
         entitlementID: String = "pro",
         permanentLicenseEntitlementID: String? = nil
-    ) -> EntitlementSnapshot {
-        RevenueCatPaywallService.makeSnapshot(
+    ) throws -> EntitlementSnapshot {
+        try RevenueCatPaywallService.makeSnapshot(
             from: makeCustomerInfo(entitlements: entitlements),
             entitlementID: entitlementID,
             permanentLicenseEntitlementID: permanentLicenseEntitlementID,
@@ -33,8 +33,8 @@ struct RevenueCatPaywallServiceTests {
     }
 
     @Test("Active pro entitlement maps to isPro=true")
-    func activeProMapsToIsPro() {
-        let snapshot = makeSnapshot(
+    func activeProMapsToIsPro() throws {
+        let snapshot = try makeSnapshot(
             entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)]
         )
 
@@ -43,8 +43,8 @@ struct RevenueCatPaywallServiceTests {
     }
 
     @Test("Inactive pro entitlement maps to isPro=false")
-    func inactiveProMapsToFalse() {
-        let snapshot = makeSnapshot(
+    func inactiveProMapsToFalse() throws {
+        let snapshot = try makeSnapshot(
             entitlements: ["pro": makeEntitlement(id: "pro", isActive: false)]
         )
 
@@ -52,16 +52,16 @@ struct RevenueCatPaywallServiceTests {
     }
 
     @Test("Missing pro entitlement maps to isPro=false")
-    func missingProMapsToFalse() {
-        let snapshot = makeSnapshot(entitlements: [:])
+    func missingProMapsToFalse() throws {
+        let snapshot = try makeSnapshot(entitlements: [:])
 
         #expect(!snapshot.isPro)
         #expect(!snapshot.hasPermanentLicense)
     }
 
     @Test("Active permanent-license entitlement sets hasPermanentLicense=true")
-    func activeLifetimeMapsToPermanentLicense() {
-        let snapshot = makeSnapshot(
+    func activeLifetimeMapsToPermanentLicense() throws {
+        let snapshot = try makeSnapshot(
             entitlements: ["lifetime": makeEntitlement(id: "lifetime", isActive: true)],
             permanentLicenseEntitlementID: "lifetime"
         )
@@ -71,8 +71,8 @@ struct RevenueCatPaywallServiceTests {
     }
 
     @Test("Lifetime entitlement is ignored when no permanent-license ID is configured")
-    func lifetimeIgnoredWhenNoIDConfigured() {
-        let snapshot = makeSnapshot(
+    func lifetimeIgnoredWhenNoIDConfigured() throws {
+        let snapshot = try makeSnapshot(
             entitlements: ["lifetime": makeEntitlement(id: "lifetime", isActive: true)]
         )
 
@@ -80,8 +80,8 @@ struct RevenueCatPaywallServiceTests {
     }
 
     @Test("Both pro and lifetime active sets both flags")
-    func bothActiveSetsBothFlags() {
-        let snapshot = makeSnapshot(
+    func bothActiveSetsBothFlags() throws {
+        let snapshot = try makeSnapshot(
             entitlements: [
                 "pro": makeEntitlement(id: "pro", isActive: true),
                 "lifetime": makeEntitlement(id: "lifetime", isActive: true),
@@ -94,8 +94,8 @@ struct RevenueCatPaywallServiceTests {
     }
 
     @Test("Pro active with lifetime absent sets only isPro when both IDs are configured")
-    func proActiveLifetimeAbsentSetsOnlyIsPro() {
-        let snapshot = makeSnapshot(
+    func proActiveLifetimeAbsentSetsOnlyIsPro() throws {
+        let snapshot = try makeSnapshot(
             entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)],
             permanentLicenseEntitlementID: "lifetime"
         )
@@ -105,8 +105,8 @@ struct RevenueCatPaywallServiceTests {
     }
 
     @Test("Inactive permanent-license entitlement keeps hasPermanentLicense=false")
-    func inactiveLifetimeKeepsFalse() {
-        let snapshot = makeSnapshot(
+    func inactiveLifetimeKeepsFalse() throws {
+        let snapshot = try makeSnapshot(
             entitlements: ["lifetime": makeEntitlement(id: "lifetime", isActive: false)],
             permanentLicenseEntitlementID: "lifetime"
         )
@@ -116,51 +116,25 @@ struct RevenueCatPaywallServiceTests {
 }
 
 // A tampered response is exactly what verification exists to catch, and apps never see
-// `CustomerInfo` — the adapter is the only place the verification result can be acted on.
+// `CustomerInfo` — the adapter is the only place the verification result can be acted on. A
+// rejected read must look like any other failed read, so `ResilientPaywallService` falls back to
+// its last-known-good instead of the plugin flipping a paying user to free.
 @Suite("RevenueCatPaywallService entitlement verification")
 struct EntitlementVerificationTests {
-    @Test("A response that failed signature verification grants nothing and is not live")
-    func failedResponseGrantsNothing() {
-        let snapshot = RevenueCatPaywallService.makeSnapshot(
-            from: makeCustomerInfo(
-                entitlements: [
-                    "pro": makeEntitlement(id: "pro", isActive: true, verification: .failed),
-                    "lifetime": makeEntitlement(id: "lifetime", isActive: true, verification: .failed),
-                ],
-                verification: .failed
-            ),
-            entitlementID: "pro",
-            permanentLicenseEntitlementID: "lifetime",
-            nonLiveSource: .cache
-        )
-
-        #expect(!snapshot.isPro)
-        #expect(!snapshot.hasPermanentLicense)
-        #expect(snapshot.source != .live, "A forged response must never be offered to a cache as live.")
-    }
-
-    @Test("A failed entitlement is not trusted even when the response-level result is not failed")
-    func failedEntitlementGrantsNothing() {
-        let snapshot = RevenueCatPaywallService.makeSnapshot(
-            from: makeCustomerInfo(
-                entitlements: ["pro": makeEntitlement(id: "pro", isActive: true, verification: .failed)],
-                verification: .verified
-            ),
-            entitlementID: "pro",
-            permanentLicenseEntitlementID: nil,
-            nonLiveSource: .cache
-        )
-
-        #expect(!snapshot.isPro)
-        #expect(snapshot.source != .live)
-    }
+    private let forged = makeCustomerInfo(
+        entitlements: [
+            "pro": makeEntitlement(id: "pro", isActive: true, verification: .failed),
+            "lifetime": makeEntitlement(id: "lifetime", isActive: true, verification: .failed),
+        ],
+        verification: .failed
+    )
 
     @Test(
         "Verified, on-device-verified, and unrequested results grant as live",
         arguments: [VerificationResult.verified, .verifiedOnDevice, .notRequested]
     )
-    func trustedResultsGrant(_ verification: VerificationResult) {
-        let snapshot = RevenueCatPaywallService.makeSnapshot(
+    func trustedResultsGrant(_ verification: VerificationResult) throws {
+        let snapshot = try RevenueCatPaywallService.makeSnapshot(
             from: makeCustomerInfo(
                 entitlements: ["pro": makeEntitlement(id: "pro", isActive: true, verification: verification)],
                 verification: verification
@@ -174,8 +148,71 @@ struct EntitlementVerificationTests {
         #expect(snapshot.source == .live)
     }
 
-    @Test("A forged stream value never reaches ResilientPaywallService's cache")
-    func forgedStreamValueIsNotCached() async {
+    @Test("A response that failed verification is rejected, not mapped")
+    func failedResponseIsRejected() {
+        #expect(throws: RevenueCatPaywallError.verificationFailed) {
+            try RevenueCatPaywallService.makeSnapshot(
+                from: forged,
+                entitlementID: "pro",
+                permanentLicenseEntitlementID: "lifetime",
+                nonLiveSource: .cache
+            )
+        }
+    }
+
+    @Test("A forged read with nothing cached fails, and nothing is cached")
+    func forgedReadWithEmptyCacheFails() async {
+        let store = InMemoryKeyValueStore()
+        let resilient = ResilientPaywallService(
+            base: ReadOnlyPaywallService(info: forged, permanentLicenseEntitlementID: "lifetime"),
+            store: store,
+            maxAttempts: 1
+        )
+
+        await #expect(throws: RevenueCatPaywallError.verificationFailed) { try await resilient.customerInfo() }
+        #expect(store.value(.lastKnownEntitlement) == nil)
+    }
+
+    @Test("A forged entitlement fails the read even when the response-level result is not failed")
+    func forgedEntitlementFailsRead() async {
+        let resilient = ResilientPaywallService(
+            base: ReadOnlyPaywallService(
+                info: makeCustomerInfo(
+                    entitlements: ["pro": makeEntitlement(id: "pro", isActive: true, verification: .failed)],
+                    verification: .verified
+                ),
+                permanentLicenseEntitlementID: nil
+            ),
+            store: InMemoryKeyValueStore(),
+            maxAttempts: 1
+        )
+
+        await #expect(throws: RevenueCatPaywallError.verificationFailed) { try await resilient.customerInfo() }
+    }
+
+    @Test("A forged read falls back to a cached pro entitlement and leaves the cache untouched")
+    func forgedReadFallsBackToCache() async throws {
+        let store = InMemoryKeyValueStore()
+        let cachedAt = Date().addingTimeInterval(-3600)
+        store.setValue(
+            CachedEntitlement(isPro: true, hasPermanentLicense: false, cachedAt: cachedAt),
+            for: .lastKnownEntitlement
+        )
+        let resilient = ResilientPaywallService(
+            base: ReadOnlyPaywallService(info: forged, permanentLicenseEntitlementID: "lifetime"),
+            store: store,
+            maxAttempts: 1
+        )
+
+        let snapshot = try await resilient.customerInfo()
+
+        #expect(snapshot == EntitlementSnapshot(isPro: true, source: .cache))
+        #expect(store.value(.lastKnownEntitlement)?.cachedAt == cachedAt)
+        #expect(store.value(.lastKnownEntitlement)?.isPro == true)
+    }
+
+    @Test("A forged stream value is dropped and never reaches ResilientPaywallService's cache")
+    func forgedStreamValueIsDropped() async {
         let (upstream, continuation) = AsyncStream<CustomerInfo>.makeStream()
         let store = InMemoryKeyValueStore()
         let resilient = ResilientPaywallService(
@@ -183,26 +220,21 @@ struct EntitlementVerificationTests {
                 stream: RevenueCatPaywallService.mapStream(
                     upstream,
                     entitlementID: "pro",
-                    permanentLicenseEntitlementID: nil
+                    permanentLicenseEntitlementID: "lifetime"
                 )
             ),
             store: store
         )
         var iterator = resilient.customerInfoStream().makeAsyncIterator()
 
-        continuation.yield(
-            makeCustomerInfo(
-                entitlements: ["pro": makeEntitlement(id: "pro", isActive: true, verification: .failed)],
-                verification: .failed
-            )
-        )
-        let snapshot = await iterator.next()
-
-        #expect(snapshot?.isPro == false)
-        // The decorator persists before it yields, so the cache is settled by now.
-        #expect(store.value(.lastKnownEntitlement) == nil)
-
+        // Finishing right behind the forged value makes "dropped" observable as the stream ending
+        // with nothing yielded, rather than as a race against a later genuine value.
+        continuation.yield(forged)
         continuation.finish()
+        let first = await iterator.next()
+
+        #expect(first == nil, "The forged value must be skipped, not mapped.")
+        #expect(store.value(.lastKnownEntitlement) == nil)
     }
 }
 
@@ -214,8 +246,8 @@ struct ResponseFreshnessTests {
     private func makeSnapshot(
         requestedAgo age: TimeInterval,
         nonLiveSource: EntitlementSnapshot.Source
-    ) -> EntitlementSnapshot {
-        RevenueCatPaywallService.makeSnapshot(
+    ) throws -> EntitlementSnapshot {
+        try RevenueCatPaywallService.makeSnapshot(
             from: makeCustomerInfo(
                 entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)],
                 requestDate: Date().addingTimeInterval(-age)
@@ -227,8 +259,8 @@ struct ResponseFreshnessTests {
     }
 
     @Test("A just-fetched response is live")
-    func freshResponseIsLive() {
-        let snapshot = makeSnapshot(requestedAgo: 0, nonLiveSource: .cache)
+    func freshResponseIsLive() throws {
+        let snapshot = try makeSnapshot(requestedAgo: 0, nonLiveSource: .cache)
 
         #expect(snapshot.isPro)
         #expect(snapshot.source == .live)
@@ -238,8 +270,8 @@ struct ResponseFreshnessTests {
         "A cached response keeps its entitlements but takes the caller's non-live label",
         arguments: [EntitlementSnapshot.Source.cache, .cacheSeed]
     )
-    func cachedResponseIsNotLive(_ nonLiveSource: EntitlementSnapshot.Source) {
-        let snapshot = makeSnapshot(requestedAgo: 3600, nonLiveSource: nonLiveSource)
+    func cachedResponseIsNotLive(_ nonLiveSource: EntitlementSnapshot.Source) throws {
+        let snapshot = try makeSnapshot(requestedAgo: 3600, nonLiveSource: nonLiveSource)
 
         #expect(snapshot.isPro)
         #expect(snapshot.source == nonLiveSource)
@@ -553,6 +585,25 @@ private func makeEntitlement(
         ownershipType: .purchased,
         verification: verification
     )
+}
+
+/// A base service whose reads map `info` exactly as ``RevenueCatPaywallService`` maps a live
+/// `Purchases.shared` result, so a test drives `ResilientPaywallService` through the adapter's real
+/// mapping without a configured RevenueCat SDK.
+private struct ReadOnlyPaywallService: PaywallService {
+    let info: CustomerInfo
+    let permanentLicenseEntitlementID: String?
+
+    func customerInfo() async throws -> EntitlementSnapshot {
+        try RevenueCatPaywallService.makeSnapshot(
+            from: info,
+            entitlementID: "pro",
+            permanentLicenseEntitlementID: permanentLicenseEntitlementID,
+            nonLiveSource: .cache
+        )
+    }
+    func customerInfoStream() -> AsyncStream<EntitlementSnapshot> { AsyncStream { $0.finish() } }
+    func restorePurchases() async throws -> EntitlementSnapshot { try await customerInfo() }
 }
 
 /// A base service that only streams, so a test drives `ResilientPaywallService` through the

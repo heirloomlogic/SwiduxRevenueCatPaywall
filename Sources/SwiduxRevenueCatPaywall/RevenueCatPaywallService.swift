@@ -14,9 +14,10 @@ import SwiduxPaywall
 /// `hasPermanentLicense`. Forwards `Purchases.shared.customerInfoStream` so the paywall plugin
 /// sees real-time entitlement changes.
 ///
-/// A response whose entitlement signature verification *failed* grants nothing: it maps to a
-/// free snapshot that is not labelled `.live`, so `ResilientPaywallService` never caches it,
-/// and the adapter logs a `.fault`. See
+/// A response whose entitlement signature verification *failed* grants nothing and is never
+/// offered as a snapshot: one-shot reads throw ``RevenueCatPaywallError/verificationFailed``, so
+/// `ResilientPaywallService` falls back to its last-known-good as for any failed read, and the
+/// stream skips the response. The adapter logs a `.fault` either way. See
 /// ``RevenueCatPaywall/EntitlementVerification/informational``.
 ///
 /// Customer info RevenueCat serves from its own cache — replayed when a stream starts, or
@@ -74,17 +75,20 @@ public struct RevenueCatPaywallService: PaywallService {
     /// entitlement identifiers.
     ///
     /// - Returns: An `EntitlementSnapshot` reflecting the configured entitlement IDs.
-    /// - Throws: Any error propagated from `Purchases.shared.customerInfo()`.
+    /// - Throws: ``RevenueCatPaywallError/verificationFailed`` when the response failed
+    ///   entitlement signature verification, or any error propagated from
+    ///   `Purchases.shared.customerInfo()`.
     public func customerInfo() async throws -> EntitlementSnapshot {
         let info = try await Purchases.shared.customerInfo()
-        return snapshot(from: info, nonLiveSource: .cache)
+        return try snapshot(from: info, nonLiveSource: .cache)
     }
 
     /// Returns a long-lived stream of entitlement snapshots derived from
     /// `Purchases.shared.customerInfoStream`.
     ///
     /// Yields a new `EntitlementSnapshot` every time RevenueCat reports a change to the user's
-    /// customer info — purchase, refund, family-share update, sandbox renewal. The stream
+    /// customer info — purchase, refund, family-share update, sandbox renewal. A response that
+    /// failed entitlement signature verification is skipped rather than yielded. The stream
     /// finishes when the underlying RevenueCat stream finishes; the paywall plugin's
     /// `.observeCustomerInfo` effect normally keeps it alive for the duration of the session.
     public func customerInfoStream() -> AsyncStream<EntitlementSnapshot> {
@@ -104,14 +108,16 @@ public struct RevenueCatPaywallService: PaywallService {
     /// customer info is mapped to a snapshot.
     ///
     /// - Returns: An `EntitlementSnapshot` reflecting any entitlements restored to the account.
-    /// - Throws: Any error propagated from the underlying SDK call.
+    /// - Throws: ``RevenueCatPaywallError/verificationFailed`` when the response failed
+    ///   entitlement signature verification, or any error propagated from the underlying SDK
+    ///   call.
     public func restorePurchases() async throws -> EntitlementSnapshot {
         let info: CustomerInfo
         switch Self.restoreStrategy(for: Purchases.shared.purchasesAreCompletedBy) {
         case .sync: info = try await Purchases.shared.syncPurchases()
         case .restore: info = try await Purchases.shared.restorePurchases()
         }
-        return snapshot(from: info, nonLiveSource: .cache)
+        return try snapshot(from: info, nonLiveSource: .cache)
     }
 
     // MARK: - Internal
@@ -130,8 +136,11 @@ public struct RevenueCatPaywallService: PaywallService {
         completedBy == .myApp ? .sync : .restore
     }
 
-    func snapshot(from info: CustomerInfo, nonLiveSource: EntitlementSnapshot.Source) -> EntitlementSnapshot {
-        Self.makeSnapshot(
+    func snapshot(
+        from info: CustomerInfo,
+        nonLiveSource: EntitlementSnapshot.Source
+    ) throws(RevenueCatPaywallError) -> EntitlementSnapshot {
+        try Self.makeSnapshot(
             from: info,
             entitlementID: entitlementID,
             permanentLicenseEntitlementID: permanentLicenseEntitlementID,
@@ -140,7 +149,8 @@ public struct RevenueCatPaywallService: PaywallService {
     }
 
     /// Wraps an upstream `CustomerInfo` stream and yields a mapped `EntitlementSnapshot` for every
-    /// value the upstream produces. Cancelling the consuming task cancels the upstream iteration.
+    /// value the upstream produces, skipping any that failed entitlement signature verification.
+    /// Cancelling the consuming task cancels the upstream iteration.
     ///
     /// Buffers only the newest snapshot: each yield is a complete entitlement state, so a slow
     /// consumer should see the latest value rather than replay stale intermediate states.
@@ -152,14 +162,17 @@ public struct RevenueCatPaywallService: PaywallService {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
                 for await info in upstream {
-                    continuation.yield(
-                        makeSnapshot(
+                    // A stream has no error channel short of ending it, so a response that
+                    // failed verification is dropped; `makeSnapshot` has already logged it.
+                    guard
+                        let snapshot = try? makeSnapshot(
                             from: info,
                             entitlementID: entitlementID,
                             permanentLicenseEntitlementID: permanentLicenseEntitlementID,
                             nonLiveSource: .cacheSeed
                         )
-                    )
+                    else { continue }
+                    continuation.yield(snapshot)
                 }
                 continuation.finish()
             }
@@ -167,25 +180,25 @@ public struct RevenueCatPaywallService: PaywallService {
         }
     }
 
-    /// Maps `info` to a snapshot, refusing to grant anything from a response that failed
-    /// entitlement signature verification, and labelling cached customer info as not live.
+    /// Maps `info` to a snapshot, rejecting a response that failed entitlement signature
+    /// verification, and labelling cached customer info as not live.
     ///
     /// A `requestDate` outside ``liveResponseWindow`` means RevenueCat served `info` from its
     /// cache: the entitlements are mapped normally, but the snapshot carries `nonLiveSource`.
     ///
     /// A `.failed` result — on the response or on either entitlement read — means the response
-    /// was altered in transit, so no part of it is trusted: the snapshot is free and carries
-    /// `nonLiveSource` (`.cache` for one-shot reads, `.cacheSeed` for the stream), which keeps a
-    /// cache decorator from persisting it and keeps a stream value from superseding a live one.
-    /// `.verified` and `.verifiedOnDevice` (StoreKit-signed transactions) grant normally, as does
-    /// `.notRequested`: RevenueCat reports that only when verification is `.disabled` — with
-    /// verification on, a response missing its signature is reported `.failed`.
+    /// was altered in transit, so no part of it is trusted and there is no snapshot to report:
+    /// this logs a `.fault` and throws ``RevenueCatPaywallError/verificationFailed``. Throwing
+    /// rather than reporting "free" lets a cache decorator serve its last-known-good, exactly as
+    /// for a network failure. `.verified` and `.verifiedOnDevice` (StoreKit-signed transactions)
+    /// grant normally, as does `.notRequested`: RevenueCat reports that only when verification is
+    /// `.disabled` — with verification on, a response missing its signature is reported `.failed`.
     static func makeSnapshot(
         from info: CustomerInfo,
         entitlementID: String,
         permanentLicenseEntitlementID: String?,
         nonLiveSource: EntitlementSnapshot.Source
-    ) -> EntitlementSnapshot {
+    ) throws(RevenueCatPaywallError) -> EntitlementSnapshot {
         let pro = info.entitlements[entitlementID]
         let permanentLicense = permanentLicenseEntitlementID.flatMap { info.entitlements[$0] }
         let verifications = [info.entitlements.verification, pro?.verification, permanentLicense?.verification]
@@ -193,10 +206,10 @@ public struct RevenueCatPaywallService: PaywallService {
             logger.fault(
                 """
                 RevenueCat entitlement signature verification failed; the response was altered \
-                in transit and grants nothing.
+                in transit and is rejected.
                 """
             )
-            return EntitlementSnapshot(source: nonLiveSource)
+            throw .verificationFailed
         }
         let isFresh = abs(info.requestDate.timeIntervalSinceNow) <= liveResponseWindow
         return EntitlementSnapshot(

@@ -49,10 +49,12 @@ public enum RevenueCatPaywall {
         ///
         /// RevenueCat itself only reports a failed verification — the response still parses —
         /// and apps never see `CustomerInfo`, so ``RevenueCatPaywallService`` is where the result
-        /// is enforced: a response that failed verification grants neither `isPro` nor
-        /// `hasPermanentLicense`, is never labelled `.live` (so `ResilientPaywallService` does
-        /// not cache it), and logs a `.fault`. Responses verified by the server or on device
-        /// grant normally. Genuine responses still pass, so paying users are not locked out.
+        /// is enforced: a response that failed verification grants nothing and is never turned
+        /// into a snapshot. One-shot reads throw ``RevenueCatPaywallError/verificationFailed``, so
+        /// `ResilientPaywallService` serves its last-known-good exactly as for a network failure
+        /// (a paying user stays pro; a forged response is never cached), and the stream skips
+        /// the response. A `.fault` is logged either way. Responses verified by the server or on
+        /// device grant normally.
         case informational
 
         var rcValue: Configuration.EntitlementVerificationMode {

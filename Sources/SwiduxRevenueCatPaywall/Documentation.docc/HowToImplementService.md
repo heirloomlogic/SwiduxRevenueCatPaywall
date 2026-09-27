@@ -185,7 +185,7 @@ The plugin calls `RevenueCatPaywallService.restorePurchases()`, which forwards t
 
 ## Step 9: Handle errors
 
-The service throws whatever `Purchases.shared` throws — `ErrorCode.networkError`, `.offlineConnectionError`, configuration errors, etc. The plugin catches the error and dispatches `.refreshFailed(message)`. Read `store.paywall.error` from your paywall view to surface a retry affordance:
+The service throws whatever `Purchases.shared` throws — `ErrorCode.networkError`, `.offlineConnectionError`, configuration errors, etc. — plus `RevenueCatPaywallError.verificationFailed` when a response fails entitlement signature verification. The plugin catches the error and dispatches `.refreshFailed(message)`. Read `store.paywall.error` from your paywall view to surface a retry affordance:
 
 ```swift
 if let error = store.paywall.error {

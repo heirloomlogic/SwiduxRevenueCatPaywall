@@ -56,7 +56,7 @@ public init(
 
 One-shot fetch. Calls `Purchases.shared.customerInfo()` and maps the result. RevenueCat may answer from its cache; a result whose `requestDate` is more than five minutes old is labelled `.cache` instead of `.live` (see <doc:EntitlementMapping#Live-and-cached-customer-info>).
 
-Throws whatever the RevenueCat SDK throws (`ErrorCode.networkError`, `.offlineConnectionError`, etc.). The plugin catches the error and dispatches `.refreshFailed(message)`.
+Throws ``RevenueCatPaywallError/verificationFailed`` when the response failed entitlement signature verification, and otherwise whatever the RevenueCat SDK throws (`ErrorCode.networkError`, `.offlineConnectionError`, etc.). The plugin catches the error and dispatches `.refreshFailed(message)`; wrapped in `ResilientPaywallService`, the read first falls back to the last-known-good entitlement.
 
 #### `customerInfoStream() -> AsyncStream<EntitlementSnapshot>`
 
@@ -68,7 +68,7 @@ The stream buffers only the newest snapshot: each yield is a complete entitlemen
 
 #### `restorePurchases() async throws -> EntitlementSnapshot`
 
-Maps the result of a restore. Reads `Purchases.shared.purchasesAreCompletedBy` live and branches: observer mode (`.myApp`) calls `syncPurchases()`, the default mode calls `restorePurchases()`. In observer mode the SDK's `restorePurchases()` can alias or transfer purchases between accounts, so the service uses `syncPurchases()` automatically — no special-casing in your app code. Throws whatever the SDK throws on error.
+Maps the result of a restore. Reads `Purchases.shared.purchasesAreCompletedBy` live and branches: observer mode (`.myApp`) calls `syncPurchases()`, the default mode calls `restorePurchases()`. In observer mode the SDK's `restorePurchases()` can alias or transfer purchases between accounts, so the service uses `syncPurchases()` automatically — no special-casing in your app code. Throws ``RevenueCatPaywallError/verificationFailed`` when the response failed entitlement signature verification, and otherwise whatever the SDK throws.
 
 The plugin's `.restorePurchases` action wraps this call and dispatches `.customerInfoUpdated` on success or `.refreshFailed` on error.
 
@@ -86,7 +86,17 @@ For every `CustomerInfo` the service receives:
 
 Both flags are checked independently against the same `CustomerInfo`. A user with both active subscription and lifetime entitlements gets both flags set. See <doc:EntitlementMapping> for the reasoning behind the truth table.
 
-A response that failed entitlement signature verification grants neither flag, is never labelled `.live` (so `ResilientPaywallService` does not cache it), and logs a `.fault`. See <doc:EntitlementMapping#Signature-verification>.
+A response that failed entitlement signature verification is not mapped at all: reads throw ``RevenueCatPaywallError/verificationFailed``, the stream skips it, and a `.fault` is logged. See <doc:EntitlementMapping#Signature-verification>.
+
+### ``RevenueCatPaywallError``
+
+```swift
+public enum RevenueCatPaywallError: Error, Equatable, Sendable, LocalizedError {
+    case verificationFailed
+}
+```
+
+Errors the service raises itself rather than propagating from the SDK. `verificationFailed` means RevenueCat's entitlement signature verification failed, so the response was altered in transit. It is thrown like any other failed read, so `ResilientPaywallService` falls back to its cache.
 
 ## See Also
 

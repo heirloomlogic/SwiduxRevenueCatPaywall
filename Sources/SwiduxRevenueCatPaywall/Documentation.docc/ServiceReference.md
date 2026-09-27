@@ -66,9 +66,11 @@ The stream finishes when the underlying RevenueCat stream finishes. The plugin's
 
 The stream buffers only the newest snapshot: each yield is a complete entitlement state, so a slow consumer sees the latest value rather than replaying stale intermediate states.
 
+A new stream first yields the customer info RevenueCat last delivered in this process, if any. RevenueCat may not have delivered one yet — on a relaunch with a fresh cache it skips the launch fetch — and then the stream stays silent until the next change, so dispatch `.refreshCustomerInfo` alongside `.observeCustomerInfo` to seed the state.
+
 #### `restorePurchases() async throws -> EntitlementSnapshot`
 
-Maps the result of a restore. Reads `Purchases.shared.purchasesAreCompletedBy` live and branches: observer mode (`.myApp`) calls `syncPurchases()`, the default mode calls `restorePurchases()`. In observer mode the SDK's `restorePurchases()` can alias or transfer purchases between accounts, so the service uses `syncPurchases()` automatically — no special-casing in your app code. Throws whatever the SDK throws on error.
+Maps the result of a restore. Reads `Purchases.shared.purchasesAreCompletedBy` live and branches: observer mode (`.myApp`) calls `syncPurchases()`, the default mode calls `restorePurchases()`. RevenueCat reserves `syncPurchases()` for apps that don't call its purchase methods, which is what observer mode means. Throws whatever the SDK throws on error.
 
 The plugin's `.restorePurchases` action wraps this call and dispatches `.customerInfoUpdated` on success or `.refreshFailed` on error.
 

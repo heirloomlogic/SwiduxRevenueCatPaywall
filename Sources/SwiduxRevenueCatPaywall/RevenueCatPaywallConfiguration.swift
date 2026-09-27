@@ -38,14 +38,15 @@ public enum RevenueCatPaywall {
         }
     }
 
-    /// Mirrors `RevenueCat.Configuration.EntitlementVerificationMode` so callers can enable
+    /// Mirrors `RevenueCat.Configuration.EntitlementVerificationMode` so callers can opt out of
     /// signed entitlement verification without importing the RevenueCat module.
     public enum EntitlementVerification: Sendable {
         /// No entitlement verification is performed.
         case disabled
-        /// Entitlement responses are signature-verified; a failed verification is reported on
-        /// the result but parsing does not fail, so you can observe tampering without locking
-        /// users out.
+        /// Entitlement responses are signature-verified (the SDK default). A failed verification
+        /// is recorded on the result but does not fail parsing, so a tampered response still
+        /// grants access — ``RevenueCatPaywallService`` logs a fault for it rather than locking
+        /// users out. RevenueCat does not yet offer an enforcing mode.
         case informational
 
         var rcValue: Configuration.EntitlementVerificationMode {
@@ -63,10 +64,16 @@ public enum RevenueCatPaywall {
         case revenueCat
         /// Your app makes the purchases and finishes the transactions; RevenueCat observes.
         ///
-        /// - Note: In this mode ``RevenueCatPaywallService/restorePurchases()`` automatically
-        ///   uses the SDK's `syncPurchases()` instead of `restorePurchases()`, which in observer
-        ///   mode can alias or transfer purchases between accounts in ways a sync would not. Restore
-        ///   dispatches therefore remain safe.
+        /// - Note: In this mode ``RevenueCatPaywallService/restorePurchases()`` calls the SDK's
+        ///   `syncPurchases()` instead of `restorePurchases()`: RevenueCat reserves
+        ///   `syncPurchases()` for apps that do not call its purchase methods.
+        ///
+        /// - Warning: RevenueCatUI's paywall requires app-supplied purchase and restore handlers
+        ///   in this mode, which the `SwiduxRevenueCatPaywallUI` modifiers cannot yet pass
+        ///   through. Presenting the bundled paywall in this mode shows an error screen in Debug
+        ///   builds and traps in Release. With StoreKit 2, your purchase code must also report
+        ///   each transaction to RevenueCat (`Purchases.recordPurchase(_:)`), which this package
+        ///   does not yet wrap.
         case myApp
 
         var rcValue: PurchasesAreCompletedBy {
@@ -100,6 +107,10 @@ public enum RevenueCatPaywall {
     /// point. Call before constructing ``RevenueCatPaywallService``. Repeat calls are ignored (with
     /// a logged warning), which is safe for SwiftUI `App` re-instantiation and previews.
     ///
+    /// Surrounding whitespace is trimmed from `apiKey`. An empty key, or a secret (`sk_`) key that
+    /// must never ship in an app binary, trips an assertion in Debug builds and logs a fault in
+    /// Release.
+    ///
     /// - Parameters:
     ///   - apiKey: RevenueCat public SDK key.
     ///   - appUserID: Optional stable identifier for the user. Pass `nil` to let RevenueCat
@@ -108,11 +119,12 @@ public enum RevenueCatPaywall {
     ///   - userDefaults: Optional `UserDefaults` for RevenueCat to read and write its cache.
     ///     Pass an app-group `UserDefaults` to share entitlement state with widgets or
     ///     extensions.
-    ///   - logLevel: SDK log verbosity. Defaults to `.info`. Applied before the SDK is
-    ///     configured so configuration-time diagnostics are emitted at the requested level.
+    ///   - logLevel: SDK log verbosity. Omit for the SDK default (`.debug` in Debug builds,
+    ///     `.info` in Release). Applied before the SDK is configured so configuration-time
+    ///     diagnostics are emitted at the requested level.
     ///   - entitlementVerification: Signed entitlement verification mode. Defaults to
-    ///     `.informational`, which detects tampered entitlement responses without ever locking
-    ///     users out; pass `.disabled` to skip verification entirely (the SDK default).
+    ///     `.informational` (the SDK default), which detects tampered entitlement responses
+    ///     without ever locking users out; pass `.disabled` to skip verification entirely.
     ///   - purchasesAreCompletedBy: Who finishes purchase transactions. Pass `.myApp` when your
     ///     app runs its own StoreKit purchase code and RevenueCat should only observe. Omit for
     ///     the SDK default (`.revenueCat`).
@@ -124,7 +136,7 @@ public enum RevenueCatPaywall {
         apiKey: String,
         appUserID: String? = nil,
         userDefaults: UserDefaults? = nil,
-        logLevel: LogLevel = .info,
+        logLevel: LogLevel? = nil,
         entitlementVerification: EntitlementVerification = .informational,
         purchasesAreCompletedBy: PurchasesCompletedBy? = nil,
         storeKitVersion: StoreKitVersion? = nil
@@ -140,9 +152,18 @@ public enum RevenueCatPaywall {
             return
         }
 
+        // A key pasted with a stray newline would otherwise fail every request's authentication.
+        let apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let problem = apiKeyProblem(apiKey) {
+            logger.fault("RevenueCatPaywall.configure(apiKey:): \(problem.message, privacy: .public)")
+            assertionFailure("RevenueCatPaywall.configure(apiKey:): \(problem.message)")
+        }
+
         // Set verbosity first so the SDK's own configuration diagnostics (key validation,
         // StoreKit mode selection) are emitted at the requested level.
-        Purchases.logLevel = logLevel.rcValue
+        if let logLevel {
+            Purchases.logLevel = logLevel.rcValue
+        }
         Purchases.configure(
             with: makeConfiguration(
                 apiKey: apiKey,
@@ -178,11 +199,14 @@ public enum RevenueCatPaywall {
     /// anonymous user.
     ///
     /// Call after sign-out, in place of `Purchases.shared.logOut()`. The entitlement stream
-    /// delivers the anonymous user's (typically empty) entitlements; no manual refresh is
-    /// needed.
+    /// delivers the anonymous user's (typically empty) entitlements once RevenueCat fetches
+    /// them. Idempotent: when the current user is already anonymous this returns without
+    /// contacting RevenueCat.
     ///
-    /// - Throws: Any error propagated from `Purchases.shared.logOut()`, including when the
-    ///   current user is already anonymous.
+    /// - Throws: Any error propagated from `Purchases.shared.logOut()`. RevenueCat switches to
+    ///   the anonymous user before fetching its entitlements, so a thrown network error means
+    ///   the sign-out took effect but the stream has not yet delivered the anonymous user's
+    ///   entitlements — dispatch a refresh once connectivity returns.
     /// - Precondition: ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
     ///   has been called.
     public static func logOut() async throws {
@@ -190,10 +214,39 @@ public enum RevenueCatPaywall {
             Purchases.isConfigured,
             "Call RevenueCatPaywall.configure(apiKey:) before RevenueCatPaywall.logOut()."
         )
+        guard !Purchases.shared.isAnonymous else { return }
         _ = try await Purchases.shared.logOut()
     }
 
     // MARK: - Internal
+
+    /// A misconfigured API key that ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
+    /// flags. RevenueCat itself accepts both silently and fails later, or not at all.
+    enum APIKeyProblem: Equatable {
+        /// Empty or whitespace-only: every SDK request fails authentication.
+        case empty
+        /// A secret key, which grants server-side API access and must never ship in an app.
+        case secret
+
+        var message: String {
+            switch self {
+            case .empty:
+                "The API key is empty. Pass the public SDK key from the RevenueCat dashboard."
+            case .secret:
+                """
+                The API key is a secret (sk_) key, which must never ship in an app binary. \
+                Pass the public SDK key from the RevenueCat dashboard and revoke this one.
+                """
+            }
+        }
+    }
+
+    static func apiKeyProblem(_ apiKey: String) -> APIKeyProblem? {
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return .empty }
+        if trimmed.hasPrefix("sk_") { return .secret }
+        return nil
+    }
 
     /// How ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
     /// forwards the coupled `purchasesAreCompletedBy` / `storeKitVersion` pair to RevenueCat's

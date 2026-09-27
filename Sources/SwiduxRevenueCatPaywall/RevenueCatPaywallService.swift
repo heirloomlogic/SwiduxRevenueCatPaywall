@@ -3,8 +3,14 @@
 //  SwiduxRevenueCatPaywall
 //
 
+import OSLog
 import RevenueCat
 import SwiduxPaywall
+
+private let logger = Logger(
+    subsystem: "com.heirloomlogic.SwiduxRevenueCatPaywall",
+    category: "service"
+)
 
 /// `PaywallService` conformer backed by RevenueCat's `Purchases.shared`.
 ///
@@ -12,6 +18,10 @@ import SwiduxPaywall
 /// `entitlementID` for `isPro` and the optional `permanentLicenseEntitlementID` for
 /// `hasPermanentLicense`. Forwards `Purchases.shared.customerInfoStream` so the paywall plugin
 /// sees real-time entitlement changes.
+///
+/// A response whose entitlement signature fails verification still maps normally — RevenueCat's
+/// `.informational` mode never locks users out — but logs a fault, so tampering surfaces in
+/// Console and sysdiagnoses.
 ///
 /// - Important: Call
 ///   ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
@@ -64,6 +74,11 @@ public struct RevenueCatPaywallService: PaywallService {
     /// customer info — purchase, refund, family-share update, sandbox renewal. The stream
     /// finishes when the underlying RevenueCat stream finishes; the paywall plugin's
     /// `.observeCustomerInfo` effect normally keeps it alive for the duration of the session.
+    ///
+    /// A new stream first yields the customer info RevenueCat last delivered in this process, if
+    /// any. RevenueCat may not have delivered one yet — on a relaunch with a fresh cache it skips
+    /// the launch fetch — and then the stream stays silent until the next change. Dispatch
+    /// `.refreshCustomerInfo` alongside `.observeCustomerInfo` to seed the state.
     public func customerInfoStream() -> AsyncStream<EntitlementSnapshot> {
         Self.mapStream(
             Purchases.shared.customerInfoStream,
@@ -147,7 +162,17 @@ public struct RevenueCatPaywallService: PaywallService {
         entitlementID: String,
         permanentLicenseEntitlementID: String?
     ) -> EntitlementSnapshot {
-        EntitlementSnapshot(
+        if info.entitlements.verification == .failed {
+            // Deliberately public: the IDs are app configuration, not user data, and the fault
+            // exists to be found in a sysdiagnose.
+            logger.fault(
+                """
+                RevenueCat entitlement signature verification failed for '\(entitlementID, privacy: .public)'; \
+                the response may have been tampered with. Access is granted as reported.
+                """
+            )
+        }
+        return EntitlementSnapshot(
             isPro: info.entitlements[entitlementID]?.isActive == true,
             hasPermanentLicense: permanentLicenseEntitlementID.flatMap {
                 info.entitlements[$0]?.isActive

@@ -2,24 +2,16 @@
 
 ## Supported versions
 
-This package is pre-1.0. Only the latest tagged release (and `main`) receives security
-fixes.
+Only the latest tagged release (and `main`) receives security fixes.
 
 ## Reporting a vulnerability
 
-Please report vulnerabilities privately via
-[GitHub's private vulnerability reporting](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/security/advisories/new)
-rather than opening a public issue.
+Please report vulnerabilities privately via [GitHub's private vulnerability reporting](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/security/advisories/new) rather than opening a public issue.
 
-You should receive an acknowledgement within a week. Once a fix is available, the advisory
-will be published and credited unless you prefer otherwise.
+You should receive an acknowledgement within a week. Once a fix is available, the advisory will be published and credited unless you prefer otherwise.
 
 ## Scope notes
 
-- The `apiKey` accepted by `RevenueCatPaywall.configure` is RevenueCat's *public* SDK key;
-  it is not a secret. Entitlement trust comes from RevenueCat's server — signed entitlement
-  verification (`entitlementVerification: .informational`) is on by default, so tampered
-  entitlement responses are detectable without locking users out.
-- This package contains no networking of its own; all network traffic is the RevenueCat
-  SDK's. Vulnerabilities in the RevenueCat SDK should be reported to
-  [RevenueCat](https://github.com/RevenueCat/purchases-ios/security).
+- The `apiKey` accepted by `RevenueCatPaywall.configure` is RevenueCat's *public* SDK key; it is not a secret. Passing a secret (`sk_`) key trips an assertion in Debug and logs a fault in Release — such a key must never ship in an app binary.
+- Entitlement trust comes from RevenueCat's server. Signed entitlement verification (`.informational`, the SDK default) detects tampered entitlement responses without locking users out: a failed verification logs a fault, but access is granted as reported. RevenueCat does not yet offer an enforcing mode.
+- This package contains no networking of its own; all network traffic is the RevenueCat SDK's. Vulnerabilities in the RevenueCat SDK should be reported to [RevenueCat](https://github.com/RevenueCat/purchases-ios/security).

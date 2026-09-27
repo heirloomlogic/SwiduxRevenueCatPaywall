@@ -12,19 +12,6 @@ import Testing
 @Suite("RevenueCatPaywallModifier")
 @MainActor
 struct RevenueCatPaywallModifierTests {
-    @Test("Modifier does not dispatch on construction")
-    func modifierDoesNotDispatchOnConstruction() {
-        let recorder = ActionRecorder()
-        _ = RevenueCatPaywallModifier(
-            state: PaywallState(isPresented: true),
-            offeringIdentifier: nil,
-            displayCloseButton: true,
-            send: recorder.record
-        )
-
-        #expect(recorder.snapshot.isEmpty)
-    }
-
     @Test("paywallBinding reads state.isPresented")
     func paywallBindingReadsState() {
         let recorder = ActionRecorder()

@@ -78,7 +78,7 @@ Full DocC reference at https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/d
 - Swift 6.2 / Xcode 26+
 - iOS 18 / macOS 15
 - [Swidux](https://github.com/HeirloomLogic/Swidux) (`SwiduxPaywall` product)
-- [RevenueCat](https://github.com/RevenueCat/purchases-ios-spm) 5.55+
+- [RevenueCat](https://github.com/RevenueCat/purchases-ios-spm) 5.90.1+
 
 ## License
 

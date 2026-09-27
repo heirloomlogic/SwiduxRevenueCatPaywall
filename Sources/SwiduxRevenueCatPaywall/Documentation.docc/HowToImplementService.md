@@ -22,7 +22,7 @@ Add both Swift packages to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/HeirloomLogic/Swidux", from: "1.3.0"),
+    .package(url: "https://github.com/HeirloomLogic/Swidux", from: "1.6.0"),
     .package(url: "https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall", from: "1.0.0"),
 ],
 ```
@@ -67,7 +67,7 @@ struct MyApp: App {
 }
 ```
 
-If users sign in after launch, switch the purchase provider to them with `RevenueCatPaywall.logIn(appUserID:)` and back with `RevenueCatPaywall.logOut()` — like `configure`, these wrappers keep the RevenueCat import out of your app target. The entitlement stream delivers the new user's entitlements automatically.
+If users sign in after launch, switch the purchase provider to them with `RevenueCatPaywall.logIn(appUserID:)` and back with `RevenueCatPaywall.logOut()` — like `configure`, these wrappers keep the RevenueCat import out of your app target. The entitlement stream delivers the new user's entitlements automatically. `logOut()` returns immediately when the current user is already anonymous; if it throws a network error, the sign-out has still taken effect, so dispatch `.refreshCustomerInfo` once connectivity returns.
 
 > Important: `Purchases.shared` traps if used unconfigured. Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before anything that constructs `RevenueCatPaywallService`, including SwiftUI previews — guard preview-only code with `MockRevenueCatPaywallService` instead.
 
@@ -136,12 +136,17 @@ struct ContentView: View {
 
     var body: some View {
         RootContent()
-            .task { store.send(.paywall(.observeCustomerInfo)) }
+            .task {
+                store.send(.paywall(.observeCustomerInfo))
+                store.send(.paywall(.refreshCustomerInfo))
+            }
     }
 }
 ```
 
 `observeCustomerInfo` returns a long-lived effect that consumes `RevenueCatPaywallService.customerInfoStream()`. Every snapshot the service yields flows through `.customerInfoUpdated` and updates `store.paywall.isPro` / `hasPermanentLicense`. The effect lives for the duration of the stream, so the store stays in sync with RevenueCat without polling.
+
+The accompanying `refreshCustomerInfo` seeds the state. A new stream yields the customer info RevenueCat last delivered in this process, but RevenueCat may not have delivered one yet — on a relaunch with a fresh cache it skips the launch fetch — and the stream then stays silent until the next change.
 
 ## Step 6: Gate features
 
@@ -176,7 +181,7 @@ Button("Restore Purchases") {
 
 The plugin calls `RevenueCatPaywallService.restorePurchases()`, which forwards to `Purchases.shared.restorePurchases()`. On success the resulting snapshot flows through `.customerInfoUpdated` and updates the gate. On failure, `store.paywall.error` is set.
 
-> Note: If you configured `purchasesAreCompletedBy: .myApp`, the service handles restore correctly for you: it calls `syncPurchases()` instead of `restorePurchases()`, because in observer mode a restore can alias or transfer purchases between accounts. Dispatching `.restorePurchases` stays safe in either mode — no special-casing in your app code.
+> Note: If you configured `purchasesAreCompletedBy: .myApp`, the service calls `syncPurchases()` instead of `restorePurchases()`, since RevenueCat reserves `syncPurchases()` for apps that don't call its purchase methods. Be aware that the bundled `SwiduxRevenueCatPaywallUI` paywall does not support this mode yet — see ``RevenueCatPaywall/PurchasesCompletedBy/myApp``.
 
 ## Step 9: Handle errors
 

@@ -99,6 +99,24 @@ struct RevenueCatPaywallStoreKitSelectionTests {
     }
 }
 
+@Suite("RevenueCatPaywall.apiKeyProblem")
+struct RevenueCatPaywallAPIKeyTests {
+    @Test("Public SDK keys pass", arguments: ["appl_AbC123", "goog_AbC123", "test_AbC123"])
+    func publicKeysPass(key: String) {
+        #expect(RevenueCatPaywall.apiKeyProblem(key) == nil)
+    }
+
+    @Test("Empty and whitespace-only keys are flagged", arguments: ["", "   ", "\n\t"])
+    func emptyKeysFlagged(key: String) {
+        #expect(RevenueCatPaywall.apiKeyProblem(key) == .empty)
+    }
+
+    @Test("Secret keys are flagged, even with surrounding whitespace", arguments: ["sk_AbC123", " sk_AbC123\n"])
+    func secretKeysFlagged(key: String) {
+        #expect(RevenueCatPaywall.apiKeyProblem(key) == .secret)
+    }
+}
+
 @Suite("RevenueCatPaywall.configure", .serialized)
 @MainActor
 struct RevenueCatPaywallConfigureTests {

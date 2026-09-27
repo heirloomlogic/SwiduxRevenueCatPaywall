@@ -86,7 +86,7 @@ extension View {
 
 Convenience modifier that attaches both `revenueCatPaywall(isPresented:offeringIdentifier:displayCloseButton:onDismiss:)` and `revenueCatCustomerCenter(isPresented:onDismiss:)` and dispatches the matching dismiss action when each sheet closes.
 
-The two presentations are mutually exclusive; the paywall wins. While `state.isPresented` is `true` the customer-center binding reads `false`, and a request for either surface while the other is up dispatches `.dismissCustomerCenter` — the platform refuses simultaneous presentations, and this rule keeps `PaywallState` from holding a flag the platform ignored. See *Platform Behavior* in the `SwiduxRevenueCatPaywall` documentation.
+The two presentations are mutually exclusive; the paywall wins. While `state.isPresented` is `true` the customer-center binding reads `false`, and a request for either surface while the other is up dispatches `.dismissCustomerCenter`, so `PaywallState` never holds a flag for a surface that isn't showing. After a restore inside the paywall, the modifier also dispatches `.dismiss` once `state.isGateSatisfied` is `true`, because RevenueCatUI does not dismiss after a restore. See *Platform Behavior* in the `SwiduxRevenueCatPaywall` documentation.
 
 #### Parameters
 
@@ -95,7 +95,7 @@ The two presentations are mutually exclusive; the paywall wins. While `state.isP
 - `displayCloseButton` — Whether `PaywallView` shows a close button. Defaults to `true`; see the primitive modifier above.
 - `send` — A closure that lifts a `PaywallAction` into your root action and dispatches it through the store. Typically `{ store.send(.paywall($0)) }`.
 
-#### Equivalent manual wiring
+#### Manual wiring
 
 ```swift
 ContentView()
@@ -113,7 +113,7 @@ ContentView()
     )
 ```
 
-Use the convenience modifier when both sheets are needed; use the primitives when only one is needed or when you want to interleave other modifiers between them.
+This attaches the same two sheets but without the exclusivity and close-after-restore rules above, which you then own. Use the convenience modifier when both sheets are needed; use the primitives when only one is needed or when you want to interleave other modifiers between them.
 
 ## See Also
 

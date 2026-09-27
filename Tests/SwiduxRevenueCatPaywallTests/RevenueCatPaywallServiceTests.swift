@@ -130,21 +130,6 @@ struct RevenueCatPaywallServiceTests {
     }
 }
 
-@Suite("RevenueCatPaywallService.restoreStrategy")
-struct RestoreStrategyTests {
-    // `Purchases.configure` is once-per-process, so the observer-mode branch can't be exercised
-    // against the live SDK here; the decision is covered through the pure `restoreStrategy`.
-    @Test("Default completion mode restores")
-    func revenueCatModeRestores() {
-        #expect(RevenueCatPaywallService.restoreStrategy(for: .revenueCat) == .restore)
-    }
-
-    @Test("Observer mode syncs")
-    func myAppModeSyncs() {
-        #expect(RevenueCatPaywallService.restoreStrategy(for: .myApp) == .sync)
-    }
-}
-
 // Every test here awaits stream values; the time limit turns a regression into a failure
 // instead of a CI job hung until its timeout.
 @Suite("RevenueCatPaywallService.mapStream", .timeLimit(.minutes(1)))

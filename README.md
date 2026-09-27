@@ -7,6 +7,7 @@
 - **Drop-in `PaywallService` conformance.** `RevenueCatPaywallService` maps `CustomerInfo` to Swidux's `EntitlementSnapshot` and forwards `customerInfoStream` so the plugin sees real-time entitlement changes.
 - **Optional permanent-license entitlement.** A second entitlement ID can be checked alongside the standard pro entitlement and surfaces as `EntitlementSnapshot.hasPermanentLicense`.
 - **Preview- and test-friendly mock.** `MockRevenueCatPaywallService` exposes `send(_:)` and `finish()` so tests and previews can drive entitlement transitions over time — unlike `MockPaywallService` from SwiduxPaywall, which finishes its stream immediately.
+- **App-owned StoreKit 2 support.** `RevenueCatPaywall.recordPurchase(_:)` reports purchases without a RevenueCat import, and the bundled modifiers accept `RevenueCatPaywallPurchaseLogic` so `.myApp` paywalls receive both required handlers.
 - **Ready-made UI.** The `revenueCatPaywall` and `revenueCatCustomerCenter` view modifiers present the right RevenueCatUI surface for each platform: `fullScreenCover` for the paywall on iOS, a sized `sheet` on macOS, and an App Store subscriptions deep link for customer management on macOS.
 
 ## Installation

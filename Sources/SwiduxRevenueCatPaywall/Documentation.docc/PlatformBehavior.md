@@ -30,13 +30,13 @@ The macOS branch clears the binding and fires `onDismiss` synchronously after `N
 
 ## One surface at a time
 
-The composed `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:send:)` modifier never shows the paywall and the customer center at once — two modal surfaces competing for one host leave at most one on screen, and the other's state flag stuck `true` with nothing showing. The paywall wins: while `PaywallState.isPresented` is `true` the customer-center binding reads `false`, and a request for either surface while the other is up dispatches `.dismissCustomerCenter` so state and screen stay in agreement.
+The composed `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:purchaseLogic:send:)` modifier never shows the paywall and the customer center at once — two modal surfaces competing for one host leave at most one on screen, and the other's state flag stuck `true` with nothing showing. The paywall wins: while `PaywallState.isPresented` is `true` the customer-center binding reads `false`, and a request for either surface while the other is up dispatches `.dismissCustomerCenter` so state and screen stay in agreement.
 
 Apps wiring the primitive modifiers manually own this rule themselves; keep the two presentation flags mutually exclusive.
 
 ## Why no platform-override hooks
 
-Both modifiers are deliberately parameter-light: an `isPresented: Binding<Bool>`, an optional `onDismiss: () -> Void`, and — on the paywall only — `displayCloseButton:` and `offeringIdentifier:`. There is no `paywallStyle:` or `presentationKind:` parameter.
+Both modifiers are deliberately parameter-light: an `isPresented: Binding<Bool>`, an optional `onDismiss: () -> Void`, and — on the paywall only — `displayCloseButton:`, `offeringIdentifier:`, and optional app-owned `purchaseLogic:`. There is no `paywallStyle:` or `presentationKind:` parameter.
 
 The reasoning: any consumer that needs to deviate from the chosen presentation already has the underlying RevenueCatUI types (`PaywallView`, `CustomerCenterView`) and SwiftUI's full presentation surface (`sheet`, `fullScreenCover`, `popover`, custom containers). The bundled modifiers exist to handle the 95% case in one line — when the 5% case applies, drop down to RevenueCatUI directly.
 

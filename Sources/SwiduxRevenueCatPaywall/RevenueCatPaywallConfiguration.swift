@@ -6,6 +6,7 @@
 import Foundation
 import OSLog
 import RevenueCat
+import StoreKit
 
 /// Namespace for package-level configuration of the RevenueCat-backed paywall.
 ///
@@ -64,16 +65,9 @@ public enum RevenueCatPaywall {
         case revenueCat
         /// Your app makes the purchases and finishes the transactions; RevenueCat observes.
         ///
-        /// - Note: In this mode ``RevenueCatPaywallService/restorePurchases()`` calls the SDK's
-        ///   `syncPurchases()` instead of `restorePurchases()`: RevenueCat reserves
-        ///   `syncPurchases()` for apps that do not call its purchase methods.
+        /// - Note: ``RevenueCatPaywallService/restorePurchases()`` still uses the SDK's user-initiated `restorePurchases()` flow in this mode so the App Store receipt is refreshed. The bundled UI supports this mode with StoreKit 2 through `RevenueCatPaywallPurchaseLogic`; pass it as `purchaseLogic` to either paywall modifier.
         ///
-        /// - Warning: RevenueCatUI's paywall requires app-supplied purchase and restore handlers
-        ///   in this mode, which the `SwiduxRevenueCatPaywallUI` modifiers cannot yet pass
-        ///   through. Presenting the bundled paywall in this mode shows an error screen in Debug
-        ///   builds and traps in Release. With StoreKit 2, your purchase code must also report
-        ///   each transaction to RevenueCat (`Purchases.recordPurchase(_:)`), which this package
-        ///   does not yet wrap.
+        /// - Important: For StoreKit 2 purchases made outside the bundled paywall, call ``RevenueCatPaywall/recordPurchase(_:)`` after `Product.purchase()` and before finishing the verified transaction.
         case myApp
 
         var rcValue: PurchasesAreCompletedBy {
@@ -218,6 +212,25 @@ public enum RevenueCatPaywall {
         _ = try await Purchases.shared.logOut()
     }
 
+    /// Reports the result of an app-owned StoreKit 2 purchase to RevenueCat.
+    ///
+    /// Call this immediately after `Product.purchase()` when configured with `purchasesAreCompletedBy: .myApp` and before finishing a verified transaction. RevenueCat needs the original `Product.PurchaseResult`; reporting only the transaction identifier is not equivalent.
+    ///
+    /// The bundled UI modifiers call this automatically for purchases made through their `purchaseLogic`. Apps use this entry point for purchases made elsewhere, which keeps the RevenueCat SDK out of the app target.
+    ///
+    /// - Parameter purchaseResult: The result returned by StoreKit's `Product.purchase()`.
+    /// - Throws: Any error propagated from RevenueCat while recording the result.
+    /// - Precondition: ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` has been called.
+    public static func recordPurchase(_ purchaseResult: Product.PurchaseResult) async throws {
+        precondition(
+            Purchases.isConfigured,
+            "Call RevenueCatPaywall.configure(apiKey:) before RevenueCatPaywall.recordPurchase(_:)."
+        )
+        try await recordPurchase(purchaseResult) { result in
+            _ = try await Purchases.shared.recordPurchase(result)
+        }
+    }
+
     // MARK: - Internal
 
     /// A misconfigured API key that ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
@@ -246,6 +259,13 @@ public enum RevenueCatPaywall {
         if trimmed.isEmpty { return .empty }
         if trimmed.hasPrefix("sk_") { return .secret }
         return nil
+    }
+
+    static func recordPurchase(
+        _ purchaseResult: Product.PurchaseResult,
+        using recorder: @Sendable (Product.PurchaseResult) async throws -> Void
+    ) async throws {
+        try await recorder(purchaseResult)
     }
 
     /// How ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``

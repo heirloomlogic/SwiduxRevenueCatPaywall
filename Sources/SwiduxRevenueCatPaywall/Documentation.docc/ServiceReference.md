@@ -70,7 +70,7 @@ A new stream first yields the customer info RevenueCat last delivered in this pr
 
 #### `restorePurchases() async throws -> EntitlementSnapshot`
 
-Maps the result of a restore. Reads `Purchases.shared.purchasesAreCompletedBy` live and branches: observer mode (`.myApp`) calls `syncPurchases()`, the default mode calls `restorePurchases()`. RevenueCat reserves `syncPurchases()` for apps that don't call its purchase methods, which is what observer mode means. Throws whatever the SDK throws on error.
+Maps the result of RevenueCat's user-initiated `restorePurchases()` flow in every purchase-completion mode. Unlike `syncPurchases()`, this flow refreshes the App Store receipt and can recover a subscription missing from the device receipt. It may show an App Store sign-in prompt and applies the RevenueCat project's restore behavior when purchases belong to another app user ID. Throws whatever the SDK throws on error.
 
 The plugin's `.restorePurchases` action wraps this call and dispatches `.customerInfoUpdated` on success or `.refreshFailed` on error.
 

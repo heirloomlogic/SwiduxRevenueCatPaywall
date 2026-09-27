@@ -5,6 +5,7 @@
 
 import Foundation
 import RevenueCat
+import StoreKit
 import Testing
 
 @testable import SwiduxRevenueCatPaywall
@@ -161,5 +162,37 @@ struct RevenueCatPaywallConfigureTests {
         #expect(ObjectIdentifier(Purchases.shared) == firstInstance, "Repeat configure must be a no-op.")
         #expect(Purchases.shared.appUserID == "test_user", "appUserID must remain from the first configure.")
         #expect(Purchases.logLevel == .debug, "logLevel must remain from the first configure.")
+    }
+}
+
+@Suite("RevenueCatPaywall.recordPurchase")
+struct RecordPurchaseTests {
+    @Test("Forwards the StoreKit result through the package bridge")
+    func forwardsPurchaseResult() async throws {
+        let recorder = PurchaseResultRecorder()
+
+        try await RevenueCatPaywall.recordPurchase(
+            .pending,
+            using: { result in
+                recorder.record(result)
+            }
+        )
+
+        #expect(recorder.recordedPending)
+    }
+}
+
+private final class PurchaseResultRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending = false
+
+    func record(_ result: Product.PurchaseResult) {
+        lock.withLock {
+            if case .pending = result { pending = true }
+        }
+    }
+
+    var recordedPending: Bool {
+        lock.withLock { pending }
     }
 }

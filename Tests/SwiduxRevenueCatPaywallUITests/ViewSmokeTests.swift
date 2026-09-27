@@ -61,4 +61,21 @@ struct ViewSmokeTests {
             offeringIdentifier: "winback"
         ) { _ in }
     }
+
+    @Test("revenueCatPaywall accepts observer-mode purchase logic on both overloads")
+    func revenueCatPaywallObserverModeLogicComposes() {
+        let logic = RevenueCatPaywallPurchaseLogic(
+            purchase: { _ in .pending },
+            restore: {}
+        )
+        var flag = false
+        _ = EmptyView().revenueCatPaywall(
+            isPresented: Binding(get: { flag }, set: { flag = $0 }),
+            purchaseLogic: logic
+        )
+        _ = EmptyView().revenueCatPaywall(
+            state: PaywallState(),
+            purchaseLogic: logic
+        ) { _ in }
+    }
 }

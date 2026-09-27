@@ -186,7 +186,7 @@ Button("Export PDF") {
 
 ## Step 7: Wire the UI
 
-To present `RevenueCatUI.PaywallView` and the customer center, attach the bundled sheets to a root view. See <doc:HowToPresentTheUI>.
+To present `RevenueCatUI.PaywallView` and the customer center, attach the bundled modifier once to one app-wide presentation host. See <doc:HowToPresentTheUI>.
 
 ## Step 8: Restore purchases
 

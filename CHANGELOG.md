@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- The composed macOS customer-center flow now dispatches the paywall plugin's injectable `.openManageSubscriptions` action before clearing its request, including when the flag is already set on first appearance or the paywall is open. iOS keeps the two modal presentations exclusive and reconciles an initial two-flag state.
 - `RevenueCatPaywallService` can be constructed before RevenueCat configuration. Reads and restores now throw `RevenueCatPaywallError.notConfigured`; an early entitlement stream finishes, and a later `customerInfoStream()` call can retry after configuration.
 - The composed `revenueCatPaywall(state:send:)` modifier closes the paywall after a restore that leaves the user entitled, once RevenueCatUI reports the restore complete. RevenueCatUI dismisses after a purchase but not after a restore, so a restoring user stayed on the paywall — with no way out behind a hard paywall (`displayCloseButton: false`).
 - A superseded offering fetch can no longer overwrite the resolution for a newer `offeringIdentifier:`.
@@ -38,6 +39,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Documentation
 
+- The UI guides now require one app-wide modifier attachment so a shared presentation request is not repeated by every window or scene.
 - `purchasesAreCompletedBy: .myApp` now documents the bundled StoreKit 2 purchase and restore wiring, the reporting-before-finishing order, and the limits of background purchase synchronization.
 - Setup guides dispatch `.refreshCustomerInfo` alongside `.observeCustomerInfo`: a new entitlement stream stays silent until RevenueCat delivers customer info, which it may skip at launch when its cache is fresh.
 - The store-driven test examples in *How to Preview and Test* are `@MainActor` and wait with a bounded poll; as written they did not compile, and a single `Task.yield()` let them fail intermittently.

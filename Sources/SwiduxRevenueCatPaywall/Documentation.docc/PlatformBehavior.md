@@ -24,15 +24,21 @@ The minimum frame is hard-coded; it is not exposed as a parameter. If your paywa
 | Platform | Presentation | Reason |
 |---|---|---|
 | **iOS** | `sheet` with `RevenueCatUI.CustomerCenterView` | RevenueCatUI ships a customer center on iOS only. A non-fullscreen `sheet` is appropriate because customer-center actions are administrative, not part of a purchase flow. |
-| **macOS** | Opens `itms-apps://apps.apple.com/account/subscriptions` and immediately fires `onDismiss` | RevenueCatUI does not ship a customer center on macOS, and the system has no equivalent in-app surface. The App Store subscription management page is what users expect on the Mac, so the sheet hands off to it and clears its own presentation state immediately. |
+| **macOS** | Opens `itms-apps://apps.apple.com/account/subscriptions`, then clears the request | RevenueCatUI does not ship a customer center on macOS, and the system has no equivalent in-app surface. The primitive modifier uses SwiftUI's URL opener and fires `onDismiss`; the composed modifier dispatches the plugin's `.openManageSubscriptions` and `.dismissCustomerCenter` actions. |
 
-The macOS branch clears the binding and fires `onDismiss` synchronously after `NSWorkspace.shared.open` so `PaywallState.isCustomerCenterPresented` does not get stuck `true`. The user returns from App Store to find the app's UI in its idle state. If nothing on the system handles the `itms-apps` scheme, the hand-off falls back to the `https://apps.apple.com/account/subscriptions` web URL in the default browser.
+With the composed modifier, the macOS branch dispatches `.openManageSubscriptions` through `PaywallPlugin`, then clears the binding to dispatch `.dismissCustomerCenter`. The plugin's URL opener is injectable, so apps and tests can control the external hand-off. The primitive binding-based modifier uses SwiftUI's `openURL` environment action and falls back to `https://apps.apple.com/account/subscriptions` when nothing handles the `itms-apps` scheme.
 
-## One surface at a time
+## Presentation coordination
 
-The composed `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:purchaseLogic:send:)` modifier never shows the paywall and the customer center at once — two modal surfaces competing for one host leave at most one on screen, and the other's state flag stuck `true` with nothing showing. The paywall wins: while `PaywallState.isPresented` is `true` the customer-center binding reads `false`, and a request for either surface while the other is up dispatches `.dismissCustomerCenter` so state and screen stay in agreement.
+On iOS, the composed `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:purchaseLogic:send:)` modifier never shows the paywall and customer center at once. The paywall wins: while `PaywallState.isPresented` is `true`, the customer-center binding reads `false`, and an initial or later state with both flags set dispatches `.dismissCustomerCenter`.
 
-Apps wiring the primitive modifiers manually own this rule themselves; keep the two presentation flags mutually exclusive.
+On macOS, subscription management is an external App Store hand-off rather than a second modal surface. The customer-center binding remains active while the paywall sheet is open, so the composed modifier dispatches `.openManageSubscriptions` and then `.dismissCustomerCenter` without losing the request.
+
+Apps wiring the primitive modifiers manually own the iOS exclusivity rule.
+
+## One app-wide attachment
+
+Attach the composed modifier once, to one app-wide presentation host. `PaywallState` is shared, so attaching the modifier inside every `WindowGroup` window or scene makes every copy respond to the same request. A multi-window app should choose one scene, such as its primary app or settings window, to own paywall presentation.
 
 ## Why no platform-override hooks
 

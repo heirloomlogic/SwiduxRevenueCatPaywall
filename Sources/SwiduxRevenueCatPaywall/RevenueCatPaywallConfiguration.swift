@@ -96,10 +96,7 @@ public enum RevenueCatPaywall {
 
     /// Configures the underlying purchase provider.
     ///
-    /// Call once at app launch. Main-actor isolated so the `Purchases.isConfigured` check-then-act
-    /// is atomic — the guard and `Purchases.configure` run without an interleaving suspension
-    /// point. Call before constructing ``RevenueCatPaywallService``. Repeat calls are ignored (with
-    /// a logged warning), which is safe for SwiftUI `App` re-instantiation and previews.
+    /// Call once at app launch. Main-actor isolated so the `Purchases.isConfigured` check-then-act is atomic — the guard and `Purchases.configure` run without an interleaving suspension point. Call before using ``RevenueCatPaywallService`` to read or restore purchases. Repeat calls are ignored (with a logged warning), which is safe for SwiftUI `App` re-instantiation and previews.
     ///
     /// Surrounding whitespace is trimmed from `apiKey`. An empty key, or a secret (`sk_`) key that
     /// must never ship in an app binary, trips an assertion in Debug builds and logs a fault in

@@ -6,6 +6,7 @@
 import OSLog
 import RevenueCat
 import SwiduxPaywall
+import Synchronization
 
 private let logger = Logger(
     subsystem: "com.heirloomlogic.SwiduxRevenueCatPaywall",
@@ -23,10 +24,10 @@ private let logger = Logger(
 /// `.informational` mode never locks users out — but logs a fault, so tampering surfaces in
 /// Console and sysdiagnoses.
 ///
-/// - Important: Call
-///   ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
-///   before constructing this service. The service does not configure RevenueCat itself.
+/// - Important: Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before using the service. Construction is safe before configuration, but the service does not configure RevenueCat itself.
 public struct RevenueCatPaywallService: PaywallService {
+    private static let didLogConfigurationFault = Mutex(false)
+
     let entitlementID: String
     let permanentLicenseEntitlementID: String?
 
@@ -39,18 +40,7 @@ public struct RevenueCatPaywallService: PaywallService {
     ///     entitlement. Surfaces as `EntitlementSnapshot.hasPermanentLicense` when active. Pass
     ///     `nil` if the app has no separate lifetime SKU.
     ///
-    /// - Precondition: `RevenueCatPaywall.configure(apiKey:)` has been called. Without it, every
-    ///   service method would trap inside the RevenueCat SDK at first use; failing here instead
-    ///   names the fix. Previews and tests should construct ``MockRevenueCatPaywallService``.
     public init(entitlementID: String, permanentLicenseEntitlementID: String? = nil) {
-        precondition(
-            Purchases.isConfigured,
-            """
-            Call RevenueCatPaywall.configure(apiKey:) before constructing \
-            RevenueCatPaywallService. Previews and tests should use \
-            MockRevenueCatPaywallService instead.
-            """
-        )
         self.entitlementID = entitlementID
         self.permanentLicenseEntitlementID = permanentLicenseEntitlementID
     }
@@ -61,8 +51,9 @@ public struct RevenueCatPaywallService: PaywallService {
     /// entitlement identifiers.
     ///
     /// - Returns: An `EntitlementSnapshot` reflecting the configured entitlement IDs.
-    /// - Throws: Any error propagated from `Purchases.shared.customerInfo()`.
+    /// - Throws: ``RevenueCatPaywallError/notConfigured`` when RevenueCat has not been configured, or any error propagated from `Purchases.shared.customerInfo()`.
     public func customerInfo() async throws -> EntitlementSnapshot {
+        try Self.requireConfiguration()
         let info = try await Purchases.shared.customerInfo()
         return snapshot(from: info)
     }
@@ -79,8 +70,13 @@ public struct RevenueCatPaywallService: PaywallService {
     /// any. RevenueCat may not have delivered one yet — on a relaunch with a fresh cache it skips
     /// the launch fetch — and then the stream stays silent until the next change. Dispatch
     /// `.refreshCustomerInfo` alongside `.observeCustomerInfo` to seed the state.
+    ///
+    /// If RevenueCat has not been configured, the stream finishes immediately. Configure RevenueCat, then call this method again to start a live stream.
     public func customerInfoStream() -> AsyncStream<EntitlementSnapshot> {
-        Self.mapStream(
+        guard Self.isConfigured else {
+            return AsyncStream { continuation in continuation.finish() }
+        }
+        return Self.mapStream(
             Purchases.shared.customerInfoStream,
             entitlementID: entitlementID,
             permanentLicenseEntitlementID: permanentLicenseEntitlementID
@@ -92,13 +88,41 @@ public struct RevenueCatPaywallService: PaywallService {
     /// Calls RevenueCat's user-initiated `restorePurchases()` flow, which refreshes the App Store receipt before posting its transactions. This is also the correct path when the app owns purchases: `syncPurchases()` is for background migration and cannot recover a subscription that is absent from the device receipt.
     ///
     /// - Returns: An `EntitlementSnapshot` reflecting any entitlements restored to the account.
-    /// - Throws: Any error propagated from the underlying SDK call.
+    /// - Throws: ``RevenueCatPaywallError/notConfigured`` when RevenueCat has not been configured, or any error propagated from the underlying SDK call.
     public func restorePurchases() async throws -> EntitlementSnapshot {
+        try Self.requireConfiguration()
         let info = try await Purchases.shared.restorePurchases()
         return snapshot(from: info)
     }
 
     // MARK: - Internal
+
+    private static var isConfigured: Bool {
+        guard Purchases.isConfigured else {
+            logConfigurationFaultOnce()
+            return false
+        }
+        return true
+    }
+
+    private static func requireConfiguration() throws(RevenueCatPaywallError) {
+        guard isConfigured else { throw .notConfigured }
+    }
+
+    private static func logConfigurationFaultOnce() {
+        let shouldLog = didLogConfigurationFault.withLock { didLog in
+            guard !didLog else { return false }
+            didLog = true
+            return true
+        }
+        guard shouldLog else { return }
+        logger.fault(
+            """
+            RevenueCatPaywallService was used before RevenueCat was configured. Call \
+            RevenueCatPaywall.configure(apiKey:) before retrying.
+            """
+        )
+    }
 
     func snapshot(from info: CustomerInfo) -> EntitlementSnapshot {
         Self.makeSnapshot(

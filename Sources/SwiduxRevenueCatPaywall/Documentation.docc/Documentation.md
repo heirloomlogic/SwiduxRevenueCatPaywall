@@ -56,6 +56,7 @@ The plugin and the adapter stay decoupled: the plugin doesn't know about Revenue
 ### Service Layer
 
 - ``RevenueCatPaywallService``
+- ``RevenueCatPaywallError``
 
 ### Testing
 

@@ -10,9 +10,7 @@ import Testing
 
 @testable import SwiduxRevenueCatPaywall
 
-// Mapping tests go through the static `makeSnapshot` rather than a service instance:
-// `RevenueCatPaywallService.init` preconditions on `Purchases.isConfigured`, and configuring the
-// real SDK is reserved for the single end-to-end test in RevenueCatPaywallConfigurationTests.
+// Mapping tests use `makeSnapshot` because configuring the real SDK is reserved for the single end-to-end test in RevenueCatPaywallConfigurationTests.
 @Suite("RevenueCatPaywallService entitlement mapping")
 struct RevenueCatPaywallServiceTests {
     private func makeSnapshot(

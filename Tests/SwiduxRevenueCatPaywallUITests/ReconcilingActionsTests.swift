@@ -70,6 +70,7 @@ struct ReconcilingActionsTests {
         #expect(actions.isEmpty)
     }
 
+    #if os(iOS)
     @Test("A paywall request while the customer center is up dismisses the customer center")
     func paywallRequestYieldsCustomerCenter() {
         let actions = reconciled(
@@ -96,6 +97,25 @@ struct ReconcilingActionsTests {
         )
         #expect(actions.isEmpty)
     }
+    #else
+    @Test("A paywall request does not discard a macOS subscription-management request")
+    func paywallRequestPreservesSubscriptionManagement() {
+        let actions = reconciled(
+            from: PaywallState(isCustomerCenterPresented: true),
+            to: PaywallState(isPresented: true, isCustomerCenterPresented: true)
+        )
+        #expect(actions.isEmpty)
+    }
+
+    @Test("A macOS subscription-management request is not refused while the paywall is up")
+    func subscriptionManagementRequestIsPreserved() {
+        let actions = reconciled(
+            from: PaywallState(isPresented: true),
+            to: PaywallState(isPresented: true, isCustomerCenterPresented: true)
+        )
+        #expect(actions.isEmpty)
+    }
+    #endif
 }
 
 @Suite("RevenueCatPaywallModifier.closesAfterRestore")

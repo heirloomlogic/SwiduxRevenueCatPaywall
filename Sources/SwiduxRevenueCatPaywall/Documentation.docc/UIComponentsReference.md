@@ -66,7 +66,7 @@ extension View {
 Attaches the customer center as a platform-appropriate sheet.
 
 - **iOS** — Presents `RevenueCatUI.CustomerCenterView` in a `sheet`.
-- **macOS** — Opens `itms-apps://apps.apple.com/account/subscriptions` via `NSWorkspace.shared.open` (falling back to the `https://apps.apple.com/account/subscriptions` web URL if nothing on the system handles the `itms-apps` scheme), immediately clears the binding, and fires `onDismiss`. RevenueCatUI does not ship a customer center on macOS.
+- **macOS** — Opens `itms-apps://apps.apple.com/account/subscriptions` through SwiftUI's `openURL` environment action (falling back to the `https://apps.apple.com/account/subscriptions` web URL if nothing handles the `itms-apps` scheme), immediately clears the binding, and fires `onDismiss`. RevenueCatUI does not ship a customer center on macOS.
 
 #### Parameters
 
@@ -87,9 +87,9 @@ extension View {
 }
 ```
 
-Convenience modifier that attaches both `revenueCatPaywall(isPresented:offeringIdentifier:displayCloseButton:purchaseLogic:onDismiss:)` and `revenueCatCustomerCenter(isPresented:onDismiss:)` and dispatches the matching dismiss action when each sheet closes.
+Convenience modifier that attaches both `revenueCatPaywall(isPresented:offeringIdentifier:displayCloseButton:purchaseLogic:onDismiss:)` and `revenueCatCustomerCenter(isPresented:onDismiss:)` and dispatches the matching actions through `send`.
 
-The two presentations are mutually exclusive; the paywall wins. While `state.isPresented` is `true` the customer-center binding reads `false`, and a request for either surface while the other is up dispatches `.dismissCustomerCenter`, so `PaywallState` never holds a flag for a surface that isn't showing. After a restore inside the paywall, the modifier also dispatches `.dismiss` once `state.isGateSatisfied` is `true`, because RevenueCatUI does not dismiss after a restore. See *Platform Behavior* in the `SwiduxRevenueCatPaywall` documentation.
+On iOS the two presentations are mutually exclusive and the paywall wins. On macOS a customer-center request dispatches `.openManageSubscriptions` through the paywall plugin, then `.dismissCustomerCenter`; the external App Store hand-off remains available while the paywall sheet is open. After a restore inside the paywall, the modifier also dispatches `.dismiss` once `state.isGateSatisfied` is `true`, because RevenueCatUI does not dismiss after a restore. Attach the modifier once to one app-wide presentation host. See *Platform Behavior* in the `SwiduxRevenueCatPaywall` documentation.
 
 #### Parameters
 
@@ -117,7 +117,7 @@ ContentView()
     )
 ```
 
-This attaches the same two sheets but without the exclusivity and close-after-restore rules above, which you then own. Use the convenience modifier when both sheets are needed; use the primitives when only one is needed or when you want to interleave other modifiers between them.
+This attaches the same presentation surfaces but leaves the iOS exclusivity and close-after-restore rules to the app. Use the convenience modifier when both surfaces are needed; use the primitives when only one is needed or when you want to interleave other modifiers between them.
 
 ## See Also
 

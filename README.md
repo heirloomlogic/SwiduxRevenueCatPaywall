@@ -60,7 +60,7 @@ ContentView()
     .revenueCatPaywall(state: store.paywall) { store.send(.paywall($0)) }
 ```
 
-Gate features by reading `store.paywall.isGateSatisfied`. Trigger the paywall with `store.send(.paywall(.request(reason: "...")))`. See the [Getting Started](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/gettingstarted) guide for the full walk-through.
+Attach the modifier once, to one app-wide presentation host. In a multi-window app, choose one scene to own it instead of placing it in content instantiated for every `WindowGroup` window. Gate features by reading `store.paywall.isGateSatisfied`. Trigger the paywall with `store.send(.paywall(.request(reason: "...")))`. See the [Getting Started](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/gettingstarted) guide for the full walk-through.
 
 ## Documentation
 

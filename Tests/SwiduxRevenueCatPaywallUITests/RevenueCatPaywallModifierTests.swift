@@ -32,8 +32,8 @@ struct RevenueCatPaywallModifierTests {
         #expect(hidden.paywallBinding.wrappedValue == false)
     }
 
-    @Test("customerCenterBinding reads false while the paywall is presented")
-    func customerCenterBindingYieldsToPaywall() {
+    @Test("customerCenterBinding applies the platform presentation policy")
+    func customerCenterBindingUsesPlatformPolicy() {
         let recorder = ActionRecorder()
         let bothRequested = RevenueCatPaywallModifier(
             state: PaywallState(isPresented: true, isCustomerCenterPresented: true),
@@ -48,10 +48,11 @@ struct RevenueCatPaywallModifierTests {
             send: recorder.record
         )
 
-        #expect(
-            bothRequested.customerCenterBinding.wrappedValue == false,
-            "The paywall wins; the platform must never be asked to present both surfaces."
-        )
+        #if os(iOS)
+        #expect(!bothRequested.customerCenterBinding.wrappedValue)
+        #else
+        #expect(bothRequested.customerCenterBinding.wrappedValue)
+        #endif
         #expect(centerOnly.customerCenterBinding.wrappedValue == true)
     }
 

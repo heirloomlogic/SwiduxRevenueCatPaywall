@@ -6,6 +6,7 @@
 import Foundation
 import RevenueCat
 import StoreKit
+import SwiduxPaywall
 import Testing
 
 @testable import SwiduxRevenueCatPaywall
@@ -129,13 +130,23 @@ struct RevenueCatPaywallConfigureTests {
     /// cache never lands in the test host's standard defaults. The fake key does trigger
     /// background SDK requests that fail; that network noise is unavoidable without dependency
     /// injection into the SDK, and nothing here awaits those requests.
-    @Test("Configures Purchases once, forwards parameters, and ignores repeat calls")
-    func configuresOnceAndIgnoresRepeats() throws {
+    @Test("Service calls fail safely before configure and recover after configure")
+    func configuresOnceAndIgnoresRepeats() async throws {
         let suiteName = "com.heirloomlogic.SwiduxRevenueCatPaywallTests.configure"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         #expect(!Purchases.isConfigured, "Test must run before any other configure call in the process.")
+        let service = RevenueCatPaywallService(entitlementID: "pro")
+
+        await #expect(throws: RevenueCatPaywallError.notConfigured) {
+            try await service.customerInfo()
+        }
+        await #expect(throws: RevenueCatPaywallError.notConfigured) {
+            try await service.restorePurchases()
+        }
+        var earlyIterator = service.customerInfoStream().makeAsyncIterator()
+        #expect(await earlyIterator.next() == nil)
 
         RevenueCatPaywall.configure(
             apiKey: "test_api_key",
@@ -151,6 +162,9 @@ struct RevenueCatPaywallConfigureTests {
         #expect(Purchases.logLevel == .debug)
         #expect(Purchases.shared.purchasesAreCompletedBy == .myApp)
 
+        let retryResult = await probeFirstResult(of: service.customerInfoStream())
+        #expect(retryResult != .finished, "A stream started after configuration must use RevenueCat's live stream.")
+
         let firstInstance = ObjectIdentifier(Purchases.shared)
 
         RevenueCatPaywall.configure(
@@ -162,6 +176,31 @@ struct RevenueCatPaywallConfigureTests {
         #expect(ObjectIdentifier(Purchases.shared) == firstInstance, "Repeat configure must be a no-op.")
         #expect(Purchases.shared.appUserID == "test_user", "appUserID must remain from the first configure.")
         #expect(Purchases.logLevel == .debug, "logLevel must remain from the first configure.")
+    }
+}
+
+private enum StreamProbeResult: Equatable {
+    case yielded
+    case finished
+    case remainedOpen
+}
+
+private func probeFirstResult(
+    of stream: AsyncStream<EntitlementSnapshot>
+) async -> StreamProbeResult {
+    await withTaskGroup(of: StreamProbeResult.self) { group in
+        group.addTask {
+            var iterator = stream.makeAsyncIterator()
+            return await iterator.next() == nil ? .finished : .yielded
+        }
+        group.addTask {
+            try? await Task.sleep(for: .milliseconds(100))
+            return .remainedOpen
+        }
+
+        let result = await group.next() ?? .finished
+        group.cancelAll()
+        return result
     }
 }
 

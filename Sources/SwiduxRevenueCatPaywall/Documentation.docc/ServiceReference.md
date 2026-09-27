@@ -36,7 +36,7 @@ public struct RevenueCatPaywallService: PaywallService {
 }
 ```
 
-Value type. Holds two `String` identifiers and forwards every call to `Purchases.shared`. Cheap to construct and pass into `PaywallPlugin` — after `RevenueCatPaywall.configure` has run. For production, wrap it in SwiduxPaywall's `ResilientPaywallService` so a transient read failure at launch never gates a paid user as free.
+Value type. Holds two `String` identifiers and forwards configured calls to `Purchases.shared`. It is safe to construct before `RevenueCatPaywall.configure` runs. For production, wrap it in SwiduxPaywall's `ResilientPaywallService` so a transient read failure at launch never gates a paid user as free.
 
 #### Initializer
 
@@ -50,13 +50,13 @@ public init(
 - `entitlementID` — RevenueCat entitlement identifier that grants pro access. Surfaces as `EntitlementSnapshot.isPro` when active.
 - `permanentLicenseEntitlementID` — Optional secondary identifier for a lifetime / permanent entitlement. Surfaces as `EntitlementSnapshot.hasPermanentLicense` when active. Pass `nil` if the app has no separate lifetime SKU.
 
-> Important: Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before constructing the service. The initializer preconditions on the SDK being configured — failing fast with a named fix instead of letting `Purchases.shared` trap opaquely at first use. Previews and tests should construct `MockRevenueCatPaywallService` instead.
+> Important: Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before invoking the service. Construction before configuration is safe, including from a stored-property initializer. Previews and tests that do not configure RevenueCat should still use `MockRevenueCatPaywallService` when they need entitlement values.
 
 #### `customerInfo() async throws -> EntitlementSnapshot`
 
 One-shot fetch. Calls `Purchases.shared.customerInfo()` and maps the result.
 
-Throws whatever the RevenueCat SDK throws (`ErrorCode.networkError`, `.offlineConnectionError`, etc.). The plugin catches the error and dispatches `.refreshFailed(message)`.
+Throws ``RevenueCatPaywallError/notConfigured`` if configuration has not run, or whatever the RevenueCat SDK throws (`ErrorCode.networkError`, `.offlineConnectionError`, etc.). The plugin catches the error and dispatches `.refreshFailed(message)`.
 
 #### `customerInfoStream() -> AsyncStream<EntitlementSnapshot>`
 
@@ -64,13 +64,15 @@ Long-lived stream. Wraps `Purchases.shared.customerInfoStream` and yields a new 
 
 The stream finishes when the underlying RevenueCat stream finishes. The plugin's `.observeCustomerInfo` effect normally keeps it alive for the duration of the session; cancel by cancelling the consuming `Task`, which terminates the stream and tears down the bridge.
 
+Before configuration, the stream logs a fault and finishes immediately. Swidux 1.9 and later clears its observation guard when the stream ends, so configure RevenueCat and dispatch `.observeCustomerInfo` again to retry.
+
 The stream buffers only the newest snapshot: each yield is a complete entitlement state, so a slow consumer sees the latest value rather than replaying stale intermediate states.
 
 A new stream first yields the customer info RevenueCat last delivered in this process, if any. RevenueCat may not have delivered one yet — on a relaunch with a fresh cache it skips the launch fetch — and then the stream stays silent until the next change, so dispatch `.refreshCustomerInfo` alongside `.observeCustomerInfo` to seed the state.
 
 #### `restorePurchases() async throws -> EntitlementSnapshot`
 
-Maps the result of RevenueCat's user-initiated `restorePurchases()` flow in every purchase-completion mode. Unlike `syncPurchases()`, this flow refreshes the App Store receipt and can recover a subscription missing from the device receipt. It may show an App Store sign-in prompt and applies the RevenueCat project's restore behavior when purchases belong to another app user ID. Throws whatever the SDK throws on error.
+Maps the result of RevenueCat's user-initiated `restorePurchases()` flow in every purchase-completion mode. Unlike `syncPurchases()`, this flow refreshes the App Store receipt and can recover a subscription missing from the device receipt. It may show an App Store sign-in prompt and applies the RevenueCat project's restore behavior when purchases belong to another app user ID. It throws ``RevenueCatPaywallError/notConfigured`` before configuration, or whatever the SDK throws on error.
 
 The plugin's `.restorePurchases` action wraps this call and dispatches `.customerInfoUpdated` on success or `.refreshFailed` on error.
 
@@ -94,3 +96,4 @@ Both flags are checked independently against the same `CustomerInfo`. A user wit
 - <doc:EntitlementMapping>
 - <doc:MockServiceReference>
 - ``RevenueCatPaywallService``
+- ``RevenueCatPaywallError``

@@ -69,7 +69,7 @@ struct MyApp: App {
 
 If users sign in after launch, switch the purchase provider to them with `RevenueCatPaywall.logIn(appUserID:)` and back with `RevenueCatPaywall.logOut()` — like `configure`, these wrappers keep the RevenueCat import out of your app target. The entitlement stream delivers the new user's entitlements automatically. `logOut()` returns immediately when the current user is already anonymous; if it throws a network error, the sign-out has still taken effect, so dispatch `.refreshCustomerInfo` once connectivity returns.
 
-> Important: `Purchases.shared` traps if used unconfigured. Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before anything that constructs `RevenueCatPaywallService`, including SwiftUI previews — guard preview-only code with `MockRevenueCatPaywallService` instead.
+> Important: Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before dispatching paywall work. Constructing `RevenueCatPaywallService` earlier is safe, but reads and restores throw ``RevenueCatPaywallError/notConfigured`` and the entitlement stream finishes immediately until configuration runs.
 
 ### App-owned StoreKit 2 purchases
 
@@ -166,6 +166,8 @@ struct ContentView: View {
 
 The accompanying `refreshCustomerInfo` seeds the state. A new stream yields the customer info RevenueCat last delivered in this process, but RevenueCat may not have delivered one yet — on a relaunch with a fresh cache it skips the launch fetch — and the stream then stays silent until the next change.
 
+If observation starts before configuration, the stream finishes. Swidux 1.9 and later clears its observation guard at that point. After configuring RevenueCat, dispatch both `.observeCustomerInfo` and `.refreshCustomerInfo` again; the new stream uses `Purchases.shared` and the refresh seeds current state.
+
 ## Step 6: Gate features
 
 Read `store.paywall.isGateSatisfied` before running gated work. If it's `false`, dispatch `.request(reason:)` instead:
@@ -203,7 +205,7 @@ The plugin calls `RevenueCatPaywallService.restorePurchases()`, which forwards t
 
 ## Step 9: Handle errors
 
-The service throws whatever `Purchases.shared` throws — `ErrorCode.networkError`, `.offlineConnectionError`, configuration errors, etc. The plugin catches the error and dispatches `.refreshFailed(message)`. Read `store.paywall.error` from your paywall view to surface a retry affordance:
+Before RevenueCat is configured, reads and restores throw ``RevenueCatPaywallError/notConfigured``. Configured calls can throw errors from `Purchases.shared`, including `ErrorCode.networkError` and `.offlineConnectionError`. The plugin catches either kind and dispatches `.refreshFailed(message)`. Read `store.paywall.error` from your paywall view to surface a retry affordance:
 
 ```swift
 if let error = store.paywall.error {

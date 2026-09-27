@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- `RevenueCatPaywallService` can be constructed before RevenueCat configuration. Reads and restores now throw `RevenueCatPaywallError.notConfigured`; an early entitlement stream finishes, and a later `customerInfoStream()` call can retry after configuration.
 - The composed `revenueCatPaywall(state:send:)` modifier closes the paywall after a restore that leaves the user entitled, once RevenueCatUI reports the restore complete. RevenueCatUI dismisses after a purchase but not after a restore, so a restoring user stayed on the paywall — with no way out behind a hard paywall (`displayCloseButton: false`).
 - A superseded offering fetch can no longer overwrite the resolution for a newer `offeringIdentifier:`.
 - `RevenueCatPaywall.logOut()` returns without contacting RevenueCat when the current user is already anonymous, instead of throwing an error the app could not identify without importing RevenueCat.

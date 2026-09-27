@@ -50,6 +50,8 @@ struct MyApp: App {
 }
 ```
 
+The service itself is safe to construct before configuration. If stored-property initialization creates the store first, configure RevenueCat before dispatching paywall actions. An early read or restore throws ``RevenueCatPaywallError/notConfigured``; an early entitlement stream finishes and can be started again after configuration. Swidux 1.9 and later clears the plugin's observation guard when that stream ends.
+
 Pass `appUserID`, `userDefaults` (for app-group sharing with widgets), `logLevel`, `entitlementVerification` (signed entitlement verification), or `purchasesAreCompletedBy`/`storeKitVersion` (app-completed purchases) if you need them — see ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``.
 
 ## Register the paywall plugin

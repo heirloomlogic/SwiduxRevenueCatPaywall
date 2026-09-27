@@ -88,7 +88,7 @@ ContentView()
     )
 ```
 
-The convenience modifier `revenueCatPaywall(state:send:)` attaches this wiring and adds two rules the manual version lacks: the paywall and customer center never show at once, and the paywall closes itself when the user becomes entitled (see below).
+The convenience modifier `revenueCatPaywall(state:send:)` attaches this wiring and adds two rules the manual version lacks: the paywall and customer center never show at once, and the paywall closes itself after a restore that leaves the user entitled (see below).
 
 ## Step 5: Restore from inside the paywall
 
@@ -105,7 +105,7 @@ Button("Restore Purchases") {
 
 When the user dismisses the paywall, the plugin's `.dismiss` action clears `PaywallState.isPresented` and `requestedReason`, then dispatches `.refreshCustomerInfo` so the gate is reconciled — the user may have purchased while the sheet was open.
 
-RevenueCatUI dismisses the paywall itself after a purchase, but not after a restore. The convenience modifier closes it for you: when `PaywallState.isGateSatisfied` turns `true` while the paywall is up, it dispatches `.dismiss`. That relies on the live entitlement stream, so keep `.observeCustomerInfo` running. With the manual wiring, clear the binding yourself — otherwise a user who restores behind a hard paywall (`displayCloseButton: false`) has no way out.
+RevenueCatUI dismisses the paywall itself after a purchase, but not after a restore. The convenience modifier closes it for you: once RevenueCatUI reports the restore complete (after the user acknowledges its success alert) and `PaywallState.isGateSatisfied` is `true`, it dispatches `.dismiss`. The entitlement arrives through the live stream, so keep `.observeCustomerInfo` running. With the manual wiring, nothing closes the paywall after a restore — a user who restores behind a hard paywall (`displayCloseButton: false`) has no way out, so use the convenience modifier there.
 
 When the user dismisses the customer center, the plugin's `.dismissCustomerCenter` action clears `isCustomerCenterPresented`. No refresh is dispatched, since opening the customer center does not change entitlement state by itself; the live `customerInfoStream` from `Step 5` of <doc:HowToImplementService> picks up any subscription change RevenueCat reports asynchronously.
 

@@ -8,29 +8,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-- The composed `revenueCatPaywall(state:send:)` modifier dispatches `.dismiss` when `PaywallState.isGateSatisfied` turns `true` while the paywall is up. RevenueCatUI dismisses after a purchase but not after a restore, so a restoring user stayed on the paywall — with no way out behind a hard paywall (`displayCloseButton: false`).
-- `RevenueCatPaywallService.customerInfoStream()` drops consecutive equal snapshots. RevenueCat re-emits on every refetch, and each redundant update superseded any in-flight refresh or restore in the Swidux paywall plugin, discarding its result.
+- The composed `revenueCatPaywall(state:send:)` modifier closes the paywall after a restore that leaves the user entitled, once RevenueCatUI reports the restore complete. RevenueCatUI dismisses after a purchase but not after a restore, so a restoring user stayed on the paywall — with no way out behind a hard paywall (`displayCloseButton: false`).
+- A superseded offering fetch can no longer overwrite the resolution for a newer `offeringIdentifier:`.
 - `RevenueCatPaywall.logOut()` returns without contacting RevenueCat when the current user is already anonymous, instead of throwing an error the app could not identify without importing RevenueCat.
 - Presenting a paywall with an `offeringIdentifier:` no longer traps when `Purchases` is unconfigured (previews, tests); it defers to `PaywallView`'s own handling.
 - The offering-fetch warning logs the SDK error's description as private; RevenueCat embeds request paths, which carry the app user ID.
+- `MockRevenueCatPaywallService` streams fan out to every subscriber, like RevenueCat's own stream. Previously each new `customerInfoStream()` call finished the previous one, so a second consumer (a second store, or `ResilientPaywallService` alongside the plugin) silently cut the first off.
 
 ### Changed
 
 - The RevenueCat requirement is now `from: "5.90.1"`. Earlier SDKs can deliver a previous user's `CustomerInfo` after an identity change, so `logIn(appUserID:)` could report a paying user as free.
 - The Swidux requirement is now `from: "1.6.0"`, the first release with `ResilientPaywallService`, which the documented production wiring uses.
 - `configure(apiKey:…)`'s `logLevel:` now defaults to `nil`, leaving the SDK's own default (`.debug` in Debug builds, `.info` in Release) instead of forcing `.info`.
-- `configure(apiKey:…)` asserts in Debug and logs a fault in Release for an empty API key or a secret (`sk_`) key.
+- `configure(apiKey:…)` trims surrounding whitespace from the API key, and asserts in Debug and logs a fault in Release for an empty key or a secret (`sk_`) key.
 - A response whose entitlement signature fails verification logs a fault. It still grants access, as RevenueCat's `.informational` mode intends.
 - An `offeringIdentifier:` already in RevenueCat's offerings cache renders immediately instead of behind a progress indicator, which now has an accessibility label.
 - `restorePurchases()` reads the SDK's `purchasesAreCompletedBy` mode live and calls `syncPurchases()` in observer mode (`.myApp`), `restorePurchases()` otherwise.
 - `RevenueCatPaywall.configure` is main-actor isolated so the `Purchases.isConfigured` check-then-configure is atomic.
 - `offeringIdentifier:` is re-resolved when it changes, showing a progress indicator while it reloads.
 - The macOS customer-center hand-off defers its binding write to a main-actor task, avoiding state mutation during a view update.
+- `MockRevenueCatPaywallService` is checked `Sendable`, backed by a `Mutex` instead of `NSLock` plus `@unchecked Sendable`. `finish()` ends the streams open at the time of the call; streams requested afterwards are live.
 
 ### Documentation
 
 - `purchasesAreCompletedBy: .myApp` documents that the bundled paywall UI does not support it yet.
-- Setup guides dispatch `.refreshCustomerInfo` alongside `.observeCustomerInfo`: RevenueCat replays its latest customer info only to observers attached when it arrived.
+- Setup guides dispatch `.refreshCustomerInfo` alongside `.observeCustomerInfo`: a new entitlement stream stays silent until RevenueCat delivers customer info, which it may skip at launch when its cache is fresh.
+- The store-driven test examples in *How to Preview and Test* are `@MainActor` and wait with a bounded poll; as written they did not compile, and a single `Task.yield()` let them fail intermittently.
 - Corrected the entitlement-verification default (`.informational` is the SDK default), the restore rationale, and the claims that the manual modifier wiring is equivalent to the composed modifier.
 
 ## [1.1.0] - 2026-07-03

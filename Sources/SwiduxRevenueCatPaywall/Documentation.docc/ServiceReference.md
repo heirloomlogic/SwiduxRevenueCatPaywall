@@ -64,9 +64,9 @@ Long-lived stream. Wraps `Purchases.shared.customerInfoStream` and yields a new 
 
 The stream finishes when the underlying RevenueCat stream finishes. The plugin's `.observeCustomerInfo` effect normally keeps it alive for the duration of the session; cancel by cancelling the consuming `Task`, which terminates the stream and tears down the bridge.
 
-The stream yields only when the mapped snapshot changes. RevenueCat re-emits customer info on every refetch; forwarding those unchanged snapshots would supersede an in-flight refresh or restore in the plugin. It buffers only the newest snapshot: each yield is a complete entitlement state, so a slow consumer sees the latest value rather than replaying stale intermediate states.
+The stream buffers only the newest snapshot: each yield is a complete entitlement state, so a slow consumer sees the latest value rather than replaying stale intermediate states.
 
-RevenueCat replays its latest customer info only to observers that were attached when it arrived, so dispatch `.refreshCustomerInfo` alongside `.observeCustomerInfo` to seed the state.
+A new stream first yields the customer info RevenueCat last delivered in this process, if any. RevenueCat may not have delivered one yet — on a relaunch with a fresh cache it skips the launch fetch — and then the stream stays silent until the next change, so dispatch `.refreshCustomerInfo` alongside `.observeCustomerInfo` to seed the state.
 
 #### `restorePurchases() async throws -> EntitlementSnapshot`
 

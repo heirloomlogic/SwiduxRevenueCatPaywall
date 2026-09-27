@@ -146,7 +146,7 @@ struct ContentView: View {
 
 `observeCustomerInfo` returns a long-lived effect that consumes `RevenueCatPaywallService.customerInfoStream()`. Every snapshot the service yields flows through `.customerInfoUpdated` and updates `store.paywall.isPro` / `hasPermanentLicense`. The effect lives for the duration of the stream, so the store stays in sync with RevenueCat without polling.
 
-The accompanying `refreshCustomerInfo` seeds the state. RevenueCat replays its latest customer info only to observers attached when it arrived, so a stream opened after the SDK's launch fetch completes stays silent until the next change.
+The accompanying `refreshCustomerInfo` seeds the state. A new stream yields the customer info RevenueCat last delivered in this process, but RevenueCat may not have delivered one yet — on a relaunch with a fresh cache it skips the launch fetch — and the stream then stays silent until the next change.
 
 ## Step 6: Gate features
 

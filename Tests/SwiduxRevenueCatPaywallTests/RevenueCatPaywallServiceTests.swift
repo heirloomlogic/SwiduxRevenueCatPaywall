@@ -99,6 +99,26 @@ struct RevenueCatPaywallServiceTests {
         #expect(!snapshot.hasPermanentLicense)
     }
 
+    @Test("A failed signature verification still grants access (informational mode)")
+    func failedVerificationStillGrants() {
+        let info = CustomerInfo(
+            entitlements: EntitlementInfos(
+                entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)],
+                verification: .failed
+            ),
+            requestDate: Date(),
+            firstSeen: Date(),
+            originalAppUserId: "test-user"
+        )
+        let snapshot = RevenueCatPaywallService.makeSnapshot(
+            from: info,
+            entitlementID: "pro",
+            permanentLicenseEntitlementID: nil
+        )
+
+        #expect(snapshot.isPro, "Informational verification must never lock users out.")
+    }
+
     @Test("Inactive permanent-license entitlement keeps hasPermanentLicense=false")
     func inactiveLifetimeKeepsFalse() {
         let snapshot = makeSnapshot(
@@ -125,7 +145,9 @@ struct RestoreStrategyTests {
     }
 }
 
-@Suite("RevenueCatPaywallService.mapStream")
+// Every test here awaits stream values; the time limit turns a regression into a failure
+// instead of a CI job hung until its timeout.
+@Suite("RevenueCatPaywallService.mapStream", .timeLimit(.minutes(1)))
 struct MapStreamTests {
     @Test("Upstream values map through to snapshot stream")
     func upstreamValuesMap() async {
@@ -193,34 +215,10 @@ struct MapStreamTests {
         #expect(terminal == nil)
     }
 
-    @Test("Consecutive equal snapshots are delivered once")
-    func consecutiveDuplicatesDropped() async {
-        let (upstream, continuation) = AsyncStream<CustomerInfo>.makeStream()
-        let mapped = RevenueCatPaywallService.mapStream(
-            upstream,
-            entitlementID: "pro",
-            permanentLicenseEntitlementID: nil
-        )
-
-        var iterator = mapped.makeAsyncIterator()
-
-        // Each refetch is a distinct CustomerInfo (fresh request date) mapping to the same
-        // snapshot. Awaiting each delivery keeps the newest-only buffer out of the picture.
-        continuation.yield(makeCustomerInfo(entitlements: [:]))
-        #expect(await iterator.next() == EntitlementSnapshot())
-
-        continuation.yield(makeCustomerInfo(entitlements: [:]))
-        continuation.yield(makeCustomerInfo(entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)]))
-        #expect(await iterator.next() == EntitlementSnapshot(isPro: true), "The duplicate must be skipped.")
-
-        continuation.yield(makeCustomerInfo(entitlements: [:]))
-        #expect(await iterator.next() == EntitlementSnapshot(), "A later change back must still be delivered.")
-
-        continuation.finish()
-        #expect(await iterator.next() == nil)
-    }
-
-    @Test("A slow consumer sees the newest snapshot, not a stale backlog")
+    // `bufferingNewest(1)` itself isn't asserted here: whether an intermediate value is dropped
+    // depends on whether the consumer is suspended in `next()` when it arrives, which the test
+    // can't control without hooks into the mapping task. This pins the observable contract.
+    @Test("A consumer that falls behind still ends on the newest snapshot")
     func slowConsumerSeesNewest() async {
         let (upstream, continuation) = AsyncStream<CustomerInfo>.makeStream()
         let mapped = RevenueCatPaywallService.mapStream(
@@ -231,8 +229,6 @@ struct MapStreamTests {
 
         var iterator = mapped.makeAsyncIterator()
 
-        // Consume the first value so the mapping task is known to be running, then let two
-        // more arrive before the consumer returns: only the newest may survive the buffer.
         continuation.yield(makeCustomerInfo(entitlements: [:]))
         let first = await iterator.next()
         #expect(first?.isPro == false)
@@ -246,6 +242,29 @@ struct MapStreamTests {
             received.append(snapshot)
         }
         #expect(received.last?.isPro == true, "The newest snapshot must be delivered.")
+    }
+
+    @Test("Cancelling the consumer terminates the upstream iteration")
+    func consumerCancellationPropagates() async {
+        let (upstream, continuation) = AsyncStream<CustomerInfo>.makeStream()
+        let (upstreamEnded, endedContinuation) = AsyncStream<Void>.makeStream()
+        continuation.onTermination = { _ in endedContinuation.finish() }
+
+        let mapped = RevenueCatPaywallService.mapStream(
+            upstream,
+            entitlementID: "pro",
+            permanentLicenseEntitlementID: nil
+        )
+        let consumer = Task {
+            for await _ in mapped {}
+        }
+
+        continuation.yield(makeCustomerInfo(entitlements: [:]))
+        consumer.cancel()
+
+        // Completes only once the upstream's onTermination has run.
+        for await _ in upstreamEnded {}
+        await consumer.value
     }
 }
 

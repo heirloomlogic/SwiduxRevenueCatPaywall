@@ -107,8 +107,9 @@ public enum RevenueCatPaywall {
     /// point. Call before constructing ``RevenueCatPaywallService``. Repeat calls are ignored (with
     /// a logged warning), which is safe for SwiftUI `App` re-instantiation and previews.
     ///
-    /// An empty key, or a secret (`sk_`) key that must never ship in an app binary, trips an
-    /// assertion in Debug builds and logs a fault in Release.
+    /// Surrounding whitespace is trimmed from `apiKey`. An empty key, or a secret (`sk_`) key that
+    /// must never ship in an app binary, trips an assertion in Debug builds and logs a fault in
+    /// Release.
     ///
     /// - Parameters:
     ///   - apiKey: RevenueCat public SDK key.
@@ -151,6 +152,8 @@ public enum RevenueCatPaywall {
             return
         }
 
+        // A key pasted with a stray newline would otherwise fail every request's authentication.
+        let apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if let problem = apiKeyProblem(apiKey) {
             logger.fault("RevenueCatPaywall.configure(apiKey:): \(problem.message, privacy: .public)")
             assertionFailure("RevenueCatPaywall.configure(apiKey:): \(problem.message)")

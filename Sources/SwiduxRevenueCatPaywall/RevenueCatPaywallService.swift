@@ -71,12 +71,13 @@ public struct RevenueCatPaywallService: PaywallService {
     /// `Purchases.shared.customerInfoStream`.
     ///
     /// Yields a new `EntitlementSnapshot` every time RevenueCat reports a change to the user's
-    /// entitlements — purchase, refund, family-share update, sandbox renewal. The stream
+    /// customer info — purchase, refund, family-share update, sandbox renewal. The stream
     /// finishes when the underlying RevenueCat stream finishes; the paywall plugin's
     /// `.observeCustomerInfo` effect normally keeps it alive for the duration of the session.
     ///
-    /// RevenueCat replays its latest customer info only to observers that were attached when it
-    /// arrived, so a stream opened after launch may not yield until the next change. Dispatch
+    /// A new stream first yields the customer info RevenueCat last delivered in this process, if
+    /// any. RevenueCat may not have delivered one yet — on a relaunch with a fresh cache it skips
+    /// the launch fetch — and then the stream stays silent until the next change. Dispatch
     /// `.refreshCustomerInfo` alongside `.observeCustomerInfo` to seed the state.
     public func customerInfoStream() -> AsyncStream<EntitlementSnapshot> {
         Self.mapStream(
@@ -129,12 +130,9 @@ public struct RevenueCatPaywallService: PaywallService {
         )
     }
 
-    /// Wraps an upstream `CustomerInfo` stream and yields a mapped `EntitlementSnapshot` whenever
-    /// the mapped value changes. Cancelling the consuming task cancels the upstream iteration.
+    /// Wraps an upstream `CustomerInfo` stream and yields a mapped `EntitlementSnapshot` for every
+    /// value the upstream produces. Cancelling the consuming task cancels the upstream iteration.
     ///
-    /// Consecutive equal snapshots are dropped: RevenueCat re-emits on every refetch (its
-    /// equality includes the response date), and each redundant update would otherwise supersede
-    /// an in-flight refresh or restore in the paywall plugin, discarding that request's result.
     /// Buffers only the newest snapshot: each yield is a complete entitlement state, so a slow
     /// consumer should see the latest value rather than replay stale intermediate states.
     static func mapStream(
@@ -144,16 +142,14 @@ public struct RevenueCatPaywallService: PaywallService {
     ) -> AsyncStream<EntitlementSnapshot> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
-                var previous: EntitlementSnapshot?
                 for await info in upstream {
-                    let snapshot = makeSnapshot(
-                        from: info,
-                        entitlementID: entitlementID,
-                        permanentLicenseEntitlementID: permanentLicenseEntitlementID
+                    continuation.yield(
+                        makeSnapshot(
+                            from: info,
+                            entitlementID: entitlementID,
+                            permanentLicenseEntitlementID: permanentLicenseEntitlementID
+                        )
                     )
-                    guard snapshot != previous else { continue }
-                    previous = snapshot
-                    continuation.yield(snapshot)
                 }
                 continuation.finish()
             }

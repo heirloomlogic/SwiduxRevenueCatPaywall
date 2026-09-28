@@ -22,13 +22,19 @@ private let logger = Logger(
 /// identifier is provided.
 ///
 /// With a `nil` identifier this is exactly `PaywallView(displayCloseButton:)`, which renders the
-/// dashboard's current offering. With an identifier, the offering is fetched on appearance; while
-/// it loads a progress indicator shows, and if the fetch fails or the identifier is unknown the
-/// view falls back to the current offering (with a logged warning) rather than dead-ending the
-/// purchase flow.
+/// dashboard's current offering. With an identifier, a cached offering renders immediately;
+/// otherwise the offering is fetched on appearance while a progress indicator shows. If the fetch
+/// fails or the identifier is unknown the view falls back to the current offering (with a logged
+/// warning) rather than dead-ending the purchase flow. Without a configured `Purchases` (previews,
+/// tests) it defers to `PaywallView`'s own unconfigured-SDK handling instead of trapping.
+///
+/// `onRestoreCompleted` fires when RevenueCatUI reports a finished restore — after the user
+/// acknowledges its success alert, and also for a restore that found nothing.
 struct ResolvedOfferingPaywallView: View {
     let offeringIdentifier: String?
     let displayCloseButton: Bool
+    let purchaseLogic: RevenueCatPaywallPurchaseLogic?
+    let onRestoreCompleted: (() -> Void)?
 
     enum Resolution {
         case loading
@@ -36,17 +42,51 @@ struct ResolvedOfferingPaywallView: View {
         case currentOffering
     }
 
-    @State private var resolution: Resolution = .loading
+    @State private var resolution: Resolution
+
+    init(
+        offeringIdentifier: String?,
+        displayCloseButton: Bool,
+        purchaseLogic: RevenueCatPaywallPurchaseLogic? = nil,
+        onRestoreCompleted: (() -> Void)? = nil
+    ) {
+        self.offeringIdentifier = offeringIdentifier
+        self.displayCloseButton = displayCloseButton
+        self.purchaseLogic = purchaseLogic
+        self.onRestoreCompleted = onRestoreCompleted
+        _resolution = State(initialValue: Self.cachedResolution(for: offeringIdentifier) ?? .loading)
+    }
 
     var body: some View {
+        paywall
+            .onRestoreCompleted { _ in onRestoreCompleted?() }
+    }
+
+    @ViewBuilder
+    private var paywall: some View {
+        let handlers = Self.handlers(purchaseLogic: purchaseLogic)
         if let offeringIdentifier {
             resolvedContent
                 .task(id: offeringIdentifier) {
+                    if case .resolved(let offering) = resolution, offering.identifier == offeringIdentifier {
+                        return
+                    }
+                    if let cached = Self.cachedResolution(for: offeringIdentifier) {
+                        resolution = cached
+                        return
+                    }
                     resolution = .loading
-                    resolution = await Self.resolve(offeringIdentifier)
+                    let resolved = await Self.resolve(offeringIdentifier)
+                    // A superseded fetch must not overwrite the newer identifier's resolution.
+                    guard !Task.isCancelled else { return }
+                    resolution = resolved
                 }
         } else {
-            PaywallView(displayCloseButton: displayCloseButton)
+            PaywallView(
+                displayCloseButton: displayCloseButton,
+                performPurchase: handlers.purchase,
+                performRestore: handlers.restore
+            )
         }
     }
 
@@ -55,15 +95,47 @@ struct ResolvedOfferingPaywallView: View {
         switch resolution {
         case .loading:
             ProgressView()
+                .accessibilityLabel(Text("Loading subscription options"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .resolved(let offering):
-            PaywallView(offering: offering, displayCloseButton: displayCloseButton)
+            let handlers = Self.handlers(purchaseLogic: purchaseLogic)
+            PaywallView(
+                offering: offering,
+                displayCloseButton: displayCloseButton,
+                performPurchase: handlers.purchase,
+                performRestore: handlers.restore
+            )
         case .currentOffering:
-            PaywallView(displayCloseButton: displayCloseButton)
+            let handlers = Self.handlers(purchaseLogic: purchaseLogic)
+            PaywallView(
+                displayCloseButton: displayCloseButton,
+                performPurchase: handlers.purchase,
+                performRestore: handlers.restore
+            )
         }
     }
 
+    private static func handlers(
+        purchaseLogic: RevenueCatPaywallPurchaseLogic?
+    ) -> ObserverModePaywallHandlers {
+        let completedBy = Purchases.isConfigured ? Purchases.shared.purchasesAreCompletedBy : .revenueCat
+        return ObserverModePaywallAdapter.handlers(for: completedBy, purchaseLogic: purchaseLogic)
+    }
+
+    /// The offering already in RevenueCat's cache, resolved without a network round trip.
+    ///
+    /// `nil` when there is no identifier, nothing is cached for it, or `Purchases` is not
+    /// configured.
+    private static func cachedResolution(for identifier: String?) -> Resolution? {
+        guard let identifier, Purchases.isConfigured,
+            let offering = Purchases.shared.cachedOfferings?.offering(identifier: identifier)
+        else { return nil }
+        return .resolved(offering)
+    }
+
     private static func resolve(_ identifier: String) async -> Resolution {
+        // `Purchases.shared` traps when unconfigured. `PaywallView` reports that state itself.
+        guard Purchases.isConfigured else { return .currentOffering }
         let fetched: Result<Offering?, any Error>
         do {
             fetched = .success(try await Purchases.shared.offerings().offering(identifier: identifier))
@@ -81,9 +153,8 @@ struct ResolvedOfferingPaywallView: View {
         case .success(let offering?):
             return .resolved(offering)
         case .success(nil):
-            // The `privacy: .public` below is deliberate: the identifier is app-supplied
-            // dashboard configuration and the error is SDK-generated diagnostics — no user data
-            // flows through this path, and the warning exists to diagnose paywall fallbacks from
+            // The identifier is logged `.public` deliberately: it is app-supplied dashboard
+            // configuration, and the warning exists to diagnose paywall fallbacks from
             // sysdiagnoses without a debugger.
             logger.warning(
                 """
@@ -93,10 +164,15 @@ struct ResolvedOfferingPaywallView: View {
                 """
             )
         case .failure(let error):
+            // The domain and code identify the failure publicly; the description stays private
+            // because RevenueCat embeds request paths, which carry the app user ID.
+            let nsError = error as NSError
             logger.warning(
                 """
                 Fetching RevenueCat offering '\(identifier, privacy: .public)' failed \
-                (\(error, privacy: .public)); presenting the current offering instead.
+                (\(nsError.domain, privacy: .public) \(nsError.code, privacy: .public): \
+                \(nsError.localizedDescription, privacy: .private)); presenting the current \
+                offering instead.
                 """
             )
         }
@@ -111,21 +187,27 @@ struct RevenueCatPaywallSheetModifier: ViewModifier {
     @Binding var isPresented: Bool
     let offeringIdentifier: String?
     let displayCloseButton: Bool
+    let purchaseLogic: RevenueCatPaywallPurchaseLogic?
     let onDismiss: (() -> Void)?
+    var onRestoreCompleted: (() -> Void)? = nil
 
     func body(content: Content) -> some View {
         #if os(iOS)
         content.fullScreenCover(isPresented: $isPresented, onDismiss: onDismiss) {
             ResolvedOfferingPaywallView(
                 offeringIdentifier: offeringIdentifier,
-                displayCloseButton: displayCloseButton
+                displayCloseButton: displayCloseButton,
+                purchaseLogic: purchaseLogic,
+                onRestoreCompleted: onRestoreCompleted
             )
         }
         #else
         content.sheet(isPresented: $isPresented, onDismiss: onDismiss) {
             ResolvedOfferingPaywallView(
                 offeringIdentifier: offeringIdentifier,
-                displayCloseButton: displayCloseButton
+                displayCloseButton: displayCloseButton,
+                purchaseLogic: purchaseLogic,
+                onRestoreCompleted: onRestoreCompleted
             )
             .frame(minWidth: 400, minHeight: 600)
         }
@@ -136,8 +218,14 @@ struct RevenueCatPaywallSheetModifier: ViewModifier {
 /// Attaches `RevenueCatUI.CustomerCenterView` (iOS) or an App Store hand-off (macOS) to the
 /// modified view, driven by a `Binding<Bool>`.
 struct RevenueCatCustomerCenterSheetModifier: ViewModifier {
+    @Environment(\.openURL) private var openURL
     @Binding var isPresented: Bool
     let onDismiss: (() -> Void)?
+    var onOpenSubscriptionManagement: (() -> Void)? = nil
+
+    #if os(macOS)
+    @State private var handledPresentation = false
+    #endif
 
     func body(content: Content) -> some View {
         #if os(iOS)
@@ -149,51 +237,83 @@ struct RevenueCatCustomerCenterSheetModifier: ViewModifier {
         // view appears (state restoration, modifier attached late) is handled in onAppear.
         content
             .onAppear {
-                if isPresented { openAndClear() }
+                if isPresented { consumePresentation() }
             }
             .onChange(of: isPresented) { _, presented in
-                guard presented else { return }
-                openAndClear()
+                if presented {
+                    consumePresentation()
+                } else {
+                    handledPresentation = false
+                }
             }
         #endif
     }
 
     #if os(macOS)
-    private func openAndClear() {
+    func consumePresentation() {
+        guard !handledPresentation else { return }
+        handledPresentation = true
         // onAppear/onChange run during view update, where writing `isPresented` back through the
-        // binding is undefined behavior ("Modifying state during view update"). Deferring to a
-        // main-actor Task also keeps the synchronous NSWorkspace call out of the render pass.
-        // Ordering — open, then clear, then onDismiss — is unchanged.
+        // binding is undefined behavior ("Modifying state during view update"). The task keeps
+        // the open, clear, and dismissal callbacks ordered outside the render pass.
         Task { @MainActor in
-            Self.openSubscriptionManagement()
+            if let onOpenSubscriptionManagement {
+                onOpenSubscriptionManagement()
+            } else {
+                openSubscriptionManagement()
+            }
             isPresented = false
             onDismiss?()
         }
     }
 
-    /// Opens App Store subscription management, falling back to the web URL when nothing on
-    /// the system claims the `itms-apps` scheme.
-    static func openSubscriptionManagement() {
-        let appStore = URL(string: "itms-apps://apps.apple.com/account/subscriptions")
-        if let appStore, NSWorkspace.shared.open(appStore) { return }
-        if let web = URL(string: "https://apps.apple.com/account/subscriptions") {
-            NSWorkspace.shared.open(web)
+    func openSubscriptionManagement() {
+        guard let appStore = URL(string: "itms-apps://apps.apple.com/account/subscriptions") else {
+            return
+        }
+        openURL(appStore) { accepted in
+            guard !accepted, let web = URL(string: "https://apps.apple.com/account/subscriptions") else {
+                return
+            }
+            openURL(web)
         }
     }
     #endif
 }
 
-/// Composes paywall and customer-center sheets onto a view, driven by `PaywallState`.
+/// Composes paywall and customer-center presentation onto a view, driven by `PaywallState`.
 ///
-/// The two presentations are mutually exclusive — the paywall wins. Presenting both surfaces at
-/// once would make the platform refuse the second presentation while its state flag silently
-/// stuck `true`; instead, a paywall request while the customer center is up (or vice versa)
-/// dispatches `.dismissCustomerCenter` so state and screen stay in agreement.
+/// On iOS the two presentations are mutually exclusive and the paywall wins. On macOS subscription management is an external App Store hand-off, so it can be requested while the paywall sheet is open; the modifier dispatches `.openManageSubscriptions` and then `.dismissCustomerCenter`.
+///
+/// The paywall also closes after a restore that leaves the user entitled. RevenueCatUI dismisses
+/// after a purchase but not after a restore, which would otherwise strand a restoring user — with
+/// no way out at all behind a hard paywall (`displayCloseButton: false`). Closing waits for
+/// RevenueCatUI's restore completion, which follows the user's acknowledgement of its success
+/// alert, and for the entitlement stream to report the restored access, whichever comes last.
 struct RevenueCatPaywallModifier: ViewModifier {
     let state: PaywallState
     let offeringIdentifier: String?
     let displayCloseButton: Bool
+    let purchaseLogic: RevenueCatPaywallPurchaseLogic?
     let send: (PaywallAction) -> Void
+
+    /// Restores RevenueCatUI has reported since the paywall was last presented. A counter rather
+    /// than a flag so a second restore in the same presentation still registers as a change.
+    @State private var completedRestores = 0
+
+    init(
+        state: PaywallState,
+        offeringIdentifier: String?,
+        displayCloseButton: Bool,
+        purchaseLogic: RevenueCatPaywallPurchaseLogic? = nil,
+        send: @escaping (PaywallAction) -> Void
+    ) {
+        self.state = state
+        self.offeringIdentifier = offeringIdentifier
+        self.displayCloseButton = displayCloseButton
+        self.purchaseLogic = purchaseLogic
+        self.send = send
+    }
 
     func body(content: Content) -> some View {
         content
@@ -202,21 +322,75 @@ struct RevenueCatPaywallModifier: ViewModifier {
                     isPresented: paywallBinding,
                     offeringIdentifier: offeringIdentifier,
                     displayCloseButton: displayCloseButton,
-                    onDismiss: nil
+                    purchaseLogic: purchaseLogic,
+                    onDismiss: nil,
+                    onRestoreCompleted: { completedRestores += 1 }
                 )
             )
             .modifier(
                 RevenueCatCustomerCenterSheetModifier(
                     isPresented: customerCenterBinding,
-                    onDismiss: nil
+                    onDismiss: nil,
+                    onOpenSubscriptionManagement: {
+                        send(.openManageSubscriptions)
+                    }
                 )
             )
-            .onChange(of: state.isPresented) { _, presented in
-                if presented, state.isCustomerCenterPresented { send(.dismissCustomerCenter) }
+            .onAppear {
+                for action in Self.reconcilingActions(
+                    from: PaywallState(),
+                    to: state,
+                    restoreCompleted: false
+                ) {
+                    send(action)
+                }
             }
-            .onChange(of: state.isCustomerCenterPresented) { _, presented in
-                if presented, state.isPresented { send(.dismissCustomerCenter) }
+            .onChange(of: completedRestores) { _, count in
+                if count > 0, Self.closesAfterRestore(state) { send(.dismiss) }
             }
+            .onChange(of: state) { old, new in
+                if !new.isPresented { completedRestores = 0 }
+                let restoreCompleted = completedRestores > 0
+                for action in Self.reconcilingActions(from: old, to: new, restoreCompleted: restoreCompleted) {
+                    send(action)
+                }
+            }
+    }
+
+    /// Whether a completed restore should close the paywall given the current state.
+    static func closesAfterRestore(_ state: PaywallState) -> Bool {
+        state.isPresented && state.isGateSatisfied
+    }
+
+    /// Actions that bring presentation back in line with a state transition.
+    ///
+    /// Pure so the reconciliation rules are unit-testable without hosting a view.
+    ///
+    /// - Parameters:
+    ///   - old: The state before the transition.
+    ///   - new: The state after the transition.
+    ///   - restoreCompleted: Whether RevenueCatUI has reported a completed restore since the
+    ///     paywall was presented. The paywall closes when the entitlement arrives after that
+    ///     completion; a gate change on its own (a launch read, a cache seed) never closes it, so
+    ///     an entitled user can still open the paywall — for example to add a lifetime license.
+    /// - Returns: The actions to dispatch, in order; empty when state and screen already agree.
+    static func reconcilingActions(
+        from old: PaywallState,
+        to new: PaywallState,
+        restoreCompleted: Bool
+    ) -> [PaywallAction] {
+        var actions: [PaywallAction] = []
+        if restoreCompleted, new.isPresented, new.isGateSatisfied, !old.isGateSatisfied {
+            actions.append(.dismiss)
+        }
+        #if os(iOS)
+        if new.isPresented, new.isCustomerCenterPresented,
+            !(old.isPresented && old.isCustomerCenterPresented)
+        {
+            actions.append(.dismissCustomerCenter)
+        }
+        #endif
+        return actions
     }
 
     var paywallBinding: Binding<Bool> {
@@ -226,11 +400,16 @@ struct RevenueCatPaywallModifier: ViewModifier {
         )
     }
 
-    /// Reads `false` while the paywall is presented so the platform is never asked to present
-    /// both surfaces at once, even within the single update where both flags are true.
+    /// Applies iOS modal exclusivity while leaving the macOS external hand-off available.
     var customerCenterBinding: Binding<Bool> {
         Binding(
-            get: { state.isCustomerCenterPresented && !state.isPresented },
+            get: {
+                #if os(iOS)
+                state.isCustomerCenterPresented && !state.isPresented
+                #else
+                state.isCustomerCenterPresented
+                #endif
+            },
             set: { newValue in if !newValue { send(.dismissCustomerCenter) } }
         )
     }
@@ -253,7 +432,7 @@ extension View {
     ///     )
     /// ```
     ///
-    /// See ``revenueCatPaywall(state:offeringIdentifier:displayCloseButton:send:)`` for the
+    /// See ``revenueCatPaywall(state:offeringIdentifier:displayCloseButton:purchaseLogic:send:)`` for the
     /// convenience overload that builds the binding for you.
     ///
     /// - Parameters:
@@ -265,12 +444,18 @@ extension View {
     ///   - displayCloseButton: Whether `PaywallView` shows a close button. Defaults to `true`;
     ///     neither the iOS `fullScreenCover` nor the macOS `sheet` offers any other dismissal
     ///     affordance, so pass `false` only for a hard paywall the user must purchase through.
+    ///     RevenueCatUI dismisses after a purchase but not after a restore; with this overload,
+    ///     clearing the binding when the user becomes entitled is up to you (the
+    ///     ``revenueCatPaywall(state:offeringIdentifier:displayCloseButton:purchaseLogic:send:)`` overload
+    ///     does it for you).
+    ///   - purchaseLogic: App-owned StoreKit 2 purchase and restore operations for `.myApp` mode. Leave `nil` when RevenueCat completes purchases.
     ///   - onDismiss: Optional callback fired after the sheet dismisses.
     /// - Returns: A view with the paywall sheet attached.
     public func revenueCatPaywall(
         isPresented: Binding<Bool>,
         offeringIdentifier: String? = nil,
         displayCloseButton: Bool = true,
+        purchaseLogic: RevenueCatPaywallPurchaseLogic? = nil,
         onDismiss: (() -> Void)? = nil
     ) -> some View {
         modifier(
@@ -278,6 +463,7 @@ extension View {
                 isPresented: isPresented,
                 offeringIdentifier: offeringIdentifier,
                 displayCloseButton: displayCloseButton,
+                purchaseLogic: purchaseLogic,
                 onDismiss: onDismiss
             )
         )
@@ -315,16 +501,18 @@ extension View {
         )
     }
 
-    /// Attaches both the paywall and customer-center sheets driven by `PaywallState`.
+    /// Attaches paywall and customer-center presentation driven by `PaywallState`.
     ///
-    /// Convenience modifier that composes ``revenueCatPaywall(isPresented:offeringIdentifier:displayCloseButton:onDismiss:)``
-    /// and ``revenueCatCustomerCenter(isPresented:onDismiss:)`` in one call. Each sheet's binding
-    /// dispatches the matching dismiss action when the system clears it: `.dismiss` for the
-    /// paywall, `.dismissCustomerCenter` for the customer center.
+    /// Convenience modifier that composes ``revenueCatPaywall(isPresented:offeringIdentifier:displayCloseButton:purchaseLogic:onDismiss:)`` and ``revenueCatCustomerCenter(isPresented:onDismiss:)`` in one call. Presentation changes dispatch their matching paywall actions through `send`.
     ///
-    /// The two presentations are mutually exclusive; the paywall wins. If one surface is
-    /// requested while the other is up, `.dismissCustomerCenter` is dispatched so
-    /// `PaywallState` never holds a presentation flag the platform refused to honor.
+    /// On iOS the two presentations are mutually exclusive and the paywall wins. On macOS a customer-center request dispatches `.openManageSubscriptions` through the paywall plugin, then `.dismissCustomerCenter`; the external App Store hand-off does not compete with the paywall sheet.
+    ///
+    /// Attach this modifier once, to one app-wide presentation host. Attaching it to every `WindowGroup` scene or window causes every attachment to respond to the same `PaywallState` request.
+    ///
+    /// After a restore inside the paywall, the modifier dispatches `.dismiss` once
+    /// `PaywallState.isGateSatisfied` is `true`, since RevenueCatUI does not dismiss after a
+    /// restore on its own. This relies on the entitlement stream: dispatch
+    /// `.observeCustomerInfo` at launch.
     ///
     /// ```swift
     /// ContentView()
@@ -340,13 +528,14 @@ extension View {
     ///   - displayCloseButton: Whether `PaywallView` shows a close button. Defaults to `true`;
     ///     neither the iOS `fullScreenCover` nor the macOS `sheet` offers any other dismissal
     ///     affordance, so pass `false` only for a hard paywall the user must purchase through.
-    ///   - send: A closure that lifts a `PaywallAction` into your root action and dispatches it,
-    ///     for example `{ store.send(.paywall($0)) }`.
-    /// - Returns: A view with both the paywall and customer-center sheets attached.
+    ///   - purchaseLogic: App-owned StoreKit 2 purchase and restore operations for `.myApp` mode. Leave `nil` when RevenueCat completes purchases.
+    ///   - send: A closure that lifts a `PaywallAction` into your root action and dispatches it, for example `{ store.send(.paywall($0)) }`.
+    /// - Returns: A view with paywall and customer-center presentation attached.
     public func revenueCatPaywall(
         state: PaywallState,
         offeringIdentifier: String? = nil,
         displayCloseButton: Bool = true,
+        purchaseLogic: RevenueCatPaywallPurchaseLogic? = nil,
         send: @escaping (PaywallAction) -> Void
     ) -> some View {
         modifier(
@@ -354,6 +543,7 @@ extension View {
                 state: state,
                 offeringIdentifier: offeringIdentifier,
                 displayCloseButton: displayCloseButton,
+                purchaseLogic: purchaseLogic,
                 send: send
             )
         )

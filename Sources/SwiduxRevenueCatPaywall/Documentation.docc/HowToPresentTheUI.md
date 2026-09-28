@@ -19,9 +19,9 @@ This guide assumes:
 .product(name: "SwiduxRevenueCatPaywallUI", package: "SwiduxRevenueCatPaywall"),
 ```
 
-## Step 1: Attach both sheets to a root view
+## Step 1: Attach one presentation host
 
-The simplest wiring uses the `revenueCatPaywall(state:send:)` modifier — one call, both sheets, both dismissals:
+The simplest wiring uses the `revenueCatPaywall(state:send:)` modifier for both presentation surfaces and their actions:
 
 ```swift
 import SwiduxRevenueCatPaywallUI
@@ -38,13 +38,43 @@ struct RootView: View {
 }
 ```
 
-The closure receives a `PaywallAction` (`.dismiss` or `.dismissCustomerCenter`) and lifts it into your root action. Place the modifier on the topmost view that should host both sheets.
+The closure receives each `PaywallAction` emitted by the UI and lifts it into your root action. Attach the modifier once, to one app-wide presentation host. Do not attach it inside content created for every `WindowGroup` window or scene: the shared `PaywallState` request would make every copy present. In a multi-window app, choose one scene, such as the primary app or settings window, to own paywall presentation.
 
 Both paywall modifiers also accept `displayCloseButton:` (default `true`). The default presentation has no other way out — see <doc:PlatformBehavior> before turning it off.
 
+### App-owned StoreKit 2 purchases
+
+If RevenueCat is configured with `purchasesAreCompletedBy: .myApp` and `storeKitVersion: .storeKit2`, pass the app's StoreKit operations as `purchaseLogic`:
+
+```swift
+import StoreKit
+import SwiduxRevenueCatPaywallUI
+
+let purchaseLogic = RevenueCatPaywallPurchaseLogic(
+    purchase: { product in
+        try await product.purchase()
+    },
+    restore: {
+        try await AppStore.sync()
+    }
+)
+
+ContentView()
+    .revenueCatPaywall(
+        state: store.paywall,
+        purchaseLogic: purchaseLogic
+    ) { action in
+        store.send(.paywall(action))
+    }
+```
+
+RevenueCatUI requires both handlers in `.myApp` mode. The modifier always supplies them, so presenting without `purchaseLogic` returns a configuration error when the user tries to purchase or restore instead of triggering RevenueCatUI's Release-build trap. The purchase closure returns the original `Product.PurchaseResult`; the package reports it to RevenueCat and then finishes a verified transaction. A pending purchase stays open with a pending message. The restore closure refreshes StoreKit first, and the package then synchronizes RevenueCat and reports whether it found an active subscription or non-subscription.
+
+The bundled observer-mode UI accepts StoreKit 2 products. A `.myApp` configuration pinned to StoreKit 1 can still use `RevenueCatPaywallService`, but it needs a custom paywall because `RevenueCatPaywallPurchaseLogic` does not expose `SKProduct` or `SKPaymentTransaction`.
+
 ## Step 2: Trigger the paywall from a feature
 
-Dispatch `.request(reason:)` with a short identifier describing why you're asking. `PaywallState.requestedReason` stores the value so the sheet (or analytics) can tailor its copy:
+Dispatch `.request(reason:)` with a short identifier describing why you're asking. `PaywallState.requestedReason` stores the value for your own code — analytics, or a custom paywall. The bundled RevenueCatUI paywall does not read it:
 
 ```swift
 Button("Export PDF") {
@@ -52,7 +82,7 @@ Button("Export PDF") {
 }
 ```
 
-The plugin sets `PaywallState.isPresented = true`. The `revenueCatPaywall` modifier observes the change and presents `RevenueCatUI.PaywallView`.
+The plugin sets `PaywallState.isPresented = true`. The `revenueCatPaywall` modifier observes the change and presents `RevenueCatUI.PaywallView` with the correct RevenueCat-owned or app-owned handlers.
 
 ## Step 3: Trigger the customer center
 
@@ -66,7 +96,7 @@ if store.paywall.isPro {
 }
 ```
 
-The `revenueCatCustomerCenter` modifier presents `RevenueCatUI.CustomerCenterView` on iOS. On macOS it opens the system App Store subscriptions URL and immediately fires `onDismiss` (RevenueCatUI does not ship a customer center on macOS — see <doc:PlatformBehavior>).
+The `revenueCatCustomerCenter` modifier presents `RevenueCatUI.CustomerCenterView` on iOS. On macOS, the convenience modifier dispatches `.openManageSubscriptions` so the paywall plugin opens the App Store subscriptions URL through its injectable URL handler, then dispatches `.dismissCustomerCenter`. RevenueCatUI does not ship a customer center on macOS; see <doc:PlatformBehavior>.
 
 ## Step 4: Manual wiring (optional)
 
@@ -88,7 +118,7 @@ ContentView()
     )
 ```
 
-The convenience modifier `revenueCatPaywall(state:send:)` is exactly equivalent to this wiring.
+The convenience modifier `revenueCatPaywall(state:send:)` attaches this wiring and closes the paywall after a restore that leaves the user entitled. On iOS it also keeps the paywall and customer center mutually exclusive. The macOS customer center is an external App Store hand-off, so a request made while the paywall is open is handled immediately instead of being discarded.
 
 ## Step 5: Restore from inside the paywall
 
@@ -105,7 +135,9 @@ Button("Restore Purchases") {
 
 When the user dismisses the paywall, the plugin's `.dismiss` action clears `PaywallState.isPresented` and `requestedReason`, then dispatches `.refreshCustomerInfo` so the gate is reconciled — the user may have purchased while the sheet was open.
 
-When the user dismisses the customer center, the plugin's `.dismissCustomerCenter` action clears `isCustomerCenterPresented`. No refresh is dispatched, since opening the customer center does not change entitlement state by itself; the live `customerInfoStream` from `Step 5` of <doc:HowToImplementService> picks up any subscription change RevenueCat reports asynchronously.
+RevenueCatUI dismisses the paywall itself after a purchase, but not after a restore. The convenience modifier closes it for you: once RevenueCatUI reports the restore complete (after the user acknowledges its success alert) and `PaywallState.isGateSatisfied` is `true`, it dispatches `.dismiss`. The entitlement arrives through the live stream, so keep `.observeCustomerInfo` running. With the manual wiring, nothing closes the paywall after a restore — a user who restores behind a hard paywall (`displayCloseButton: false`) has no way out, so use the convenience modifier there.
+
+When the user dismisses the customer center, the plugin's `.dismissCustomerCenter` action clears `isCustomerCenterPresented`. On macOS the convenience modifier sends that action immediately after `.openManageSubscriptions`. No refresh is dispatched, since opening the customer center does not change entitlement state by itself; the live `customerInfoStream` from `Step 5` of <doc:HowToImplementService> picks up any subscription change RevenueCat reports asynchronously.
 
 ## See Also
 

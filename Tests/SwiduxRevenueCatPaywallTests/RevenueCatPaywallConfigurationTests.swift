@@ -5,6 +5,8 @@
 
 import Foundation
 import RevenueCat
+import StoreKit
+import SwiduxPaywall
 import Testing
 
 @testable import SwiduxRevenueCatPaywall
@@ -99,6 +101,24 @@ struct RevenueCatPaywallStoreKitSelectionTests {
     }
 }
 
+@Suite("RevenueCatPaywall.apiKeyProblem")
+struct RevenueCatPaywallAPIKeyTests {
+    @Test("Public SDK keys pass", arguments: ["appl_AbC123", "goog_AbC123", "test_AbC123"])
+    func publicKeysPass(key: String) {
+        #expect(RevenueCatPaywall.apiKeyProblem(key) == nil)
+    }
+
+    @Test("Empty and whitespace-only keys are flagged", arguments: ["", "   ", "\n\t"])
+    func emptyKeysFlagged(key: String) {
+        #expect(RevenueCatPaywall.apiKeyProblem(key) == .empty)
+    }
+
+    @Test("Secret keys are flagged, even with surrounding whitespace", arguments: ["sk_AbC123", " sk_AbC123\n"])
+    func secretKeysFlagged(key: String) {
+        #expect(RevenueCatPaywall.apiKeyProblem(key) == .secret)
+    }
+}
+
 @Suite("RevenueCatPaywall.configure", .serialized)
 @MainActor
 struct RevenueCatPaywallConfigureTests {
@@ -110,13 +130,23 @@ struct RevenueCatPaywallConfigureTests {
     /// cache never lands in the test host's standard defaults. The fake key does trigger
     /// background SDK requests that fail; that network noise is unavoidable without dependency
     /// injection into the SDK, and nothing here awaits those requests.
-    @Test("Configures Purchases once, forwards parameters, and ignores repeat calls")
-    func configuresOnceAndIgnoresRepeats() throws {
+    @Test("Service calls fail safely before configure and recover after configure")
+    func configuresOnceAndIgnoresRepeats() async throws {
         let suiteName = "com.heirloomlogic.SwiduxRevenueCatPaywallTests.configure"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         #expect(!Purchases.isConfigured, "Test must run before any other configure call in the process.")
+        let service = RevenueCatPaywallService(entitlementID: "pro")
+
+        await #expect(throws: RevenueCatPaywallError.notConfigured) {
+            try await service.customerInfo()
+        }
+        await #expect(throws: RevenueCatPaywallError.notConfigured) {
+            try await service.restorePurchases()
+        }
+        var earlyIterator = service.customerInfoStream().makeAsyncIterator()
+        #expect(await earlyIterator.next() == nil)
 
         RevenueCatPaywall.configure(
             apiKey: "test_api_key",
@@ -132,6 +162,9 @@ struct RevenueCatPaywallConfigureTests {
         #expect(Purchases.logLevel == .debug)
         #expect(Purchases.shared.purchasesAreCompletedBy == .myApp)
 
+        let retryResult = await probeFirstResult(of: service.customerInfoStream())
+        #expect(retryResult != .finished, "A stream started after configuration must use RevenueCat's live stream.")
+
         let firstInstance = ObjectIdentifier(Purchases.shared)
 
         RevenueCatPaywall.configure(
@@ -143,5 +176,62 @@ struct RevenueCatPaywallConfigureTests {
         #expect(ObjectIdentifier(Purchases.shared) == firstInstance, "Repeat configure must be a no-op.")
         #expect(Purchases.shared.appUserID == "test_user", "appUserID must remain from the first configure.")
         #expect(Purchases.logLevel == .debug, "logLevel must remain from the first configure.")
+    }
+}
+
+private enum StreamProbeResult: Equatable {
+    case yielded
+    case finished
+    case remainedOpen
+}
+
+private func probeFirstResult(
+    of stream: AsyncStream<EntitlementSnapshot>
+) async -> StreamProbeResult {
+    await withTaskGroup(of: StreamProbeResult.self) { group in
+        group.addTask {
+            var iterator = stream.makeAsyncIterator()
+            return await iterator.next() == nil ? .finished : .yielded
+        }
+        group.addTask {
+            try? await Task.sleep(for: .milliseconds(100))
+            return .remainedOpen
+        }
+
+        let result = await group.next() ?? .finished
+        group.cancelAll()
+        return result
+    }
+}
+
+@Suite("RevenueCatPaywall.recordPurchase")
+struct RecordPurchaseTests {
+    @Test("Forwards the StoreKit result through the package bridge")
+    func forwardsPurchaseResult() async throws {
+        let recorder = PurchaseResultRecorder()
+
+        try await RevenueCatPaywall.recordPurchase(
+            .pending,
+            using: { result in
+                recorder.record(result)
+            }
+        )
+
+        #expect(recorder.recordedPending)
+    }
+}
+
+private final class PurchaseResultRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending = false
+
+    func record(_ result: Product.PurchaseResult) {
+        lock.withLock {
+            if case .pending = result { pending = true }
+        }
+    }
+
+    var recordedPending: Bool {
+        lock.withLock { pending }
     }
 }

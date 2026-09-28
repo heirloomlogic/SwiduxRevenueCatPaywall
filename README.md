@@ -7,6 +7,7 @@
 - **Drop-in `PaywallService` conformance.** `RevenueCatPaywallService` maps `CustomerInfo` to Swidux's `EntitlementSnapshot` and forwards `customerInfoStream` so the plugin sees real-time entitlement changes.
 - **Optional permanent-license entitlement.** A second entitlement ID can be checked alongside the standard pro entitlement and surfaces as `EntitlementSnapshot.hasPermanentLicense`.
 - **Preview- and test-friendly mock.** `MockRevenueCatPaywallService` exposes `send(_:)` and `finish()` so tests and previews can drive entitlement transitions over time — unlike `MockPaywallService` from SwiduxPaywall, which finishes its stream immediately.
+- **App-owned StoreKit 2 support.** `RevenueCatPaywall.recordPurchase(_:)` reports purchases without a RevenueCat import, and the bundled modifiers accept `RevenueCatPaywallPurchaseLogic` so `.myApp` paywalls receive both required handlers.
 - **Ready-made UI.** The `revenueCatPaywall` and `revenueCatCustomerCenter` view modifiers present the right RevenueCatUI surface for each platform: `fullScreenCover` for the paywall on iOS, a sized `sheet` on macOS, and an App Store subscriptions deep link for customer management on macOS.
 
 ## Installation
@@ -42,7 +43,6 @@ RevenueCatPaywall.configure(apiKey: "your_revenuecat_api_key")
 
 // 2. Plugin registration — ResilientPaywallService persists the last-known-good
 //    entitlement, so a flaky network at cold launch never gates a paid user as free.
-//    Back it with the Keychain, not UserDefaults: the cache vouches for pro offline.
 plugins.register(
     PaywallPlugin(
         state: \.paywall,
@@ -60,9 +60,7 @@ ContentView()
     .revenueCatPaywall(state: store.paywall) { store.send(.paywall($0)) }
 ```
 
-The entitlement cache belongs in `KeychainKeyValueStore`, never `UserDefaultsKeyValueStore`: a `UserDefaults` plist is user-editable and restorable from a doctored backup, so a forged cache entry would unlock pro whenever RevenueCat is unreachable. See Swidux's [Security Posture](https://heirloomlogic.github.io/Swidux/documentation/swidux/securityposture) for the threat model.
-
-Gate features by reading `store.paywall.isGateSatisfied`. Trigger the paywall with `store.send(.paywall(.request(reason: "...")))`. See the [Getting Started](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/gettingstarted) guide for the full walk-through.
+Back the persisted entitlement cache with `KeychainKeyValueStore`; a user-editable `UserDefaults` cache can grant access offline. Attach the modifier once, to one app-wide presentation host. In a multi-window app, choose one scene to own it instead of placing it in content instantiated for every `WindowGroup` window. Gate features by reading `store.paywall.isGateSatisfied`. Trigger the paywall with `store.send(.paywall(.request(reason: "...")))`. See the [Getting Started](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/gettingstarted) guide for the full walk-through.
 
 ## Documentation
 
@@ -81,7 +79,7 @@ Full DocC reference at https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/d
 - Swift 6.2 / Xcode 26+
 - iOS 18 / macOS 15
 - [Swidux](https://github.com/HeirloomLogic/Swidux) (`SwiduxPaywall` product)
-- [RevenueCat](https://github.com/RevenueCat/purchases-ios-spm) 5.55+
+- [RevenueCat](https://github.com/RevenueCat/purchases-ios-spm) 5.90.1+
 
 ## License
 

@@ -6,6 +6,7 @@
 import Foundation
 import OSLog
 import RevenueCat
+import StoreKit
 
 /// Namespace for package-level configuration of the RevenueCat-backed paywall.
 ///
@@ -38,23 +39,12 @@ public enum RevenueCatPaywall {
         }
     }
 
-    /// Mirrors `RevenueCat.Configuration.EntitlementVerificationMode` so callers can enable
+    /// Mirrors `RevenueCat.Configuration.EntitlementVerificationMode` so callers can opt out of
     /// signed entitlement verification without importing the RevenueCat module.
     public enum EntitlementVerification: Sendable {
-        /// No entitlement verification is performed. Every response is trusted as-is, including
-        /// one rewritten by an intercepting proxy the user has chosen to trust. This is the
-        /// opt-out from ``informational``.
+        /// No entitlement verification is performed; responses are trusted without a signature check.
         case disabled
-        /// Entitlement responses are signature-verified, and this package acts on the result.
-        ///
-        /// RevenueCat itself only reports a failed verification — the response still parses —
-        /// and apps never see `CustomerInfo`, so ``RevenueCatPaywallService`` is where the result
-        /// is enforced: a response that failed verification grants nothing and is never turned
-        /// into a snapshot. One-shot reads throw ``RevenueCatPaywallError/verificationFailed``, so
-        /// `ResilientPaywallService` serves its last-known-good exactly as for a network failure
-        /// (a paying user stays pro; a forged response is never cached), and the stream skips
-        /// the response. A `.fault` is logged either way. Responses verified by the server or on
-        /// device grant normally.
+        /// Entitlement responses are signature-verified (the SDK default). RevenueCat marks failed verification without failing parsing; ``RevenueCatPaywallService`` rejects the response by throwing on reads and restores or skipping a stream value.
         case informational
 
         var rcValue: Configuration.EntitlementVerificationMode {
@@ -72,10 +62,9 @@ public enum RevenueCatPaywall {
         case revenueCat
         /// Your app makes the purchases and finishes the transactions; RevenueCat observes.
         ///
-        /// - Note: In this mode ``RevenueCatPaywallService/restorePurchases()`` automatically
-        ///   uses the SDK's `syncPurchases()` instead of `restorePurchases()`, which in observer
-        ///   mode can alias or transfer purchases between accounts in ways a sync would not. Restore
-        ///   dispatches therefore remain safe.
+        /// - Note: ``RevenueCatPaywallService/restorePurchases()`` still uses the SDK's user-initiated `restorePurchases()` flow in this mode so the App Store receipt is refreshed. The bundled UI supports this mode with StoreKit 2 through `RevenueCatPaywallPurchaseLogic`; pass it as `purchaseLogic` to either paywall modifier.
+        ///
+        /// - Important: For StoreKit 2 purchases made outside the bundled paywall, call ``RevenueCatPaywall/recordPurchase(_:)`` after `Product.purchase()` and before finishing the verified transaction.
         case myApp
 
         var rcValue: PurchasesAreCompletedBy {
@@ -104,10 +93,11 @@ public enum RevenueCatPaywall {
 
     /// Configures the underlying purchase provider.
     ///
-    /// Call once at app launch. Main-actor isolated so the `Purchases.isConfigured` check-then-act
-    /// is atomic — the guard and `Purchases.configure` run without an interleaving suspension
-    /// point. Call before constructing ``RevenueCatPaywallService``. Repeat calls are ignored (with
-    /// a logged warning), which is safe for SwiftUI `App` re-instantiation and previews.
+    /// Call once at app launch. Main-actor isolated so the `Purchases.isConfigured` check-then-act is atomic — the guard and `Purchases.configure` run without an interleaving suspension point. Call before using ``RevenueCatPaywallService`` to read or restore purchases. Repeat calls are ignored (with a logged warning), which is safe for SwiftUI `App` re-instantiation and previews.
+    ///
+    /// Surrounding whitespace is trimmed from `apiKey`. An empty key, or a secret (`sk_`) key that
+    /// must never ship in an app binary, trips an assertion in Debug builds and logs a fault in
+    /// Release.
     ///
     /// - Parameters:
     ///   - apiKey: RevenueCat public SDK key.
@@ -117,12 +107,11 @@ public enum RevenueCatPaywall {
     ///   - userDefaults: Optional `UserDefaults` for RevenueCat to read and write its cache.
     ///     Pass an app-group `UserDefaults` to share entitlement state with widgets or
     ///     extensions.
-    ///   - logLevel: SDK log verbosity. Defaults to `.info`. Applied before the SDK is
-    ///     configured so configuration-time diagnostics are emitted at the requested level.
+    ///   - logLevel: SDK log verbosity. Omit for the SDK default (`.debug` in Debug builds,
+    ///     `.info` in Release). Applied before the SDK is configured so configuration-time
+    ///     diagnostics are emitted at the requested level.
     ///   - entitlementVerification: Signed entitlement verification mode. Defaults to
-    ///     `.informational`, under which a tampered entitlement response grants nothing (see
-    ///     ``EntitlementVerification/informational``); pass `.disabled` to skip verification
-    ///     entirely (the SDK default) and trust every response.
+    ///     `.informational` (the SDK default); the adapter rejects failed verification. Pass `.disabled` to skip verification entirely.
     ///   - purchasesAreCompletedBy: Who finishes purchase transactions. Pass `.myApp` when your
     ///     app runs its own StoreKit purchase code and RevenueCat should only observe. Omit for
     ///     the SDK default (`.revenueCat`).
@@ -134,7 +123,7 @@ public enum RevenueCatPaywall {
         apiKey: String,
         appUserID: String? = nil,
         userDefaults: UserDefaults? = nil,
-        logLevel: LogLevel = .info,
+        logLevel: LogLevel? = nil,
         entitlementVerification: EntitlementVerification = .informational,
         purchasesAreCompletedBy: PurchasesCompletedBy? = nil,
         storeKitVersion: StoreKitVersion? = nil
@@ -150,9 +139,18 @@ public enum RevenueCatPaywall {
             return
         }
 
+        // A key pasted with a stray newline would otherwise fail every request's authentication.
+        let apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let problem = apiKeyProblem(apiKey) {
+            logger.fault("RevenueCatPaywall.configure(apiKey:): \(problem.message, privacy: .public)")
+            assertionFailure("RevenueCatPaywall.configure(apiKey:): \(problem.message)")
+        }
+
         // Set verbosity first so the SDK's own configuration diagnostics (key validation,
         // StoreKit mode selection) are emitted at the requested level.
-        Purchases.logLevel = logLevel.rcValue
+        if let logLevel {
+            Purchases.logLevel = logLevel.rcValue
+        }
         Purchases.configure(
             with: makeConfiguration(
                 apiKey: apiKey,
@@ -188,21 +186,12 @@ public enum RevenueCatPaywall {
     /// anonymous user.
     ///
     /// Call after sign-out, in place of `Purchases.shared.logOut()`. The entitlement stream
-    /// delivers the anonymous user's (typically empty) entitlements; no manual refresh is
-    /// needed.
+    /// delivers the anonymous user's (typically empty) entitlements once RevenueCat fetches
+    /// them. Idempotent: when the current user is already anonymous this returns without
+    /// contacting RevenueCat.
     ///
-    /// - Important: Signing out offline keeps the previous user's entitlement. RevenueCat
-    ///   switches to the new anonymous user locally, then fails to fetch its customer info, so
-    ///   this method throws and no snapshot arrives: `PaywallState` keeps the signed-out user's
-    ///   `isPro` / `hasPermanentLicense`, and a `ResilientPaywallService` cache keeps vouching for
-    ///   them — across relaunches — until a read succeeds. On a shared device the next person
-    ///   inherits that access while offline. Swidux is adding a cache-clear hook to
-    ///   `ResilientPaywallService` for exactly this; until it ships, remove
-    ///   `.lastKnownEntitlement` from the key-value store you gave the decorator after signing
-    ///   out, whether or not this method throws.
-    ///
-    /// - Throws: Any error propagated from `Purchases.shared.logOut()`, including when the
-    ///   current user is already anonymous.
+    /// - Important: A failed offline logout may still switch RevenueCat to an anonymous identity while the old entitlement remains displayed or cached. Applications must isolate state and cache across account transitions; see <doc:HowToImplementService> and [issue #46](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/issues/46).
+    /// - Throws: Any error propagated from `Purchases.shared.logOut()`. A thrown network error does not prove that the old identity remains active. Refresh once connectivity returns.
     /// - Precondition: ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
     ///   has been called.
     public static func logOut() async throws {
@@ -210,10 +199,65 @@ public enum RevenueCatPaywall {
             Purchases.isConfigured,
             "Call RevenueCatPaywall.configure(apiKey:) before RevenueCatPaywall.logOut()."
         )
+        guard !Purchases.shared.isAnonymous else { return }
         _ = try await Purchases.shared.logOut()
     }
 
+    /// Reports the result of an app-owned StoreKit 2 purchase to RevenueCat.
+    ///
+    /// Call this immediately after `Product.purchase()` when configured with `purchasesAreCompletedBy: .myApp` and before finishing a verified transaction. RevenueCat needs the original `Product.PurchaseResult`; reporting only the transaction identifier is not equivalent.
+    ///
+    /// The bundled UI modifiers call this automatically for purchases made through their `purchaseLogic`. Apps use this entry point for purchases made elsewhere, which keeps the RevenueCat SDK out of the app target.
+    ///
+    /// - Parameter purchaseResult: The result returned by StoreKit's `Product.purchase()`.
+    /// - Throws: Any error propagated from RevenueCat while recording the result.
+    /// - Precondition: ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` has been called.
+    public static func recordPurchase(_ purchaseResult: Product.PurchaseResult) async throws {
+        precondition(
+            Purchases.isConfigured,
+            "Call RevenueCatPaywall.configure(apiKey:) before RevenueCatPaywall.recordPurchase(_:)."
+        )
+        try await recordPurchase(purchaseResult) { result in
+            _ = try await Purchases.shared.recordPurchase(result)
+        }
+    }
+
     // MARK: - Internal
+
+    /// A misconfigured API key that ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
+    /// flags. RevenueCat itself accepts both silently and fails later, or not at all.
+    enum APIKeyProblem: Equatable {
+        /// Empty or whitespace-only: every SDK request fails authentication.
+        case empty
+        /// A secret key, which grants server-side API access and must never ship in an app.
+        case secret
+
+        var message: String {
+            switch self {
+            case .empty:
+                "The API key is empty. Pass the public SDK key from the RevenueCat dashboard."
+            case .secret:
+                """
+                The API key is a secret (sk_) key, which must never ship in an app binary. \
+                Pass the public SDK key from the RevenueCat dashboard and revoke this one.
+                """
+            }
+        }
+    }
+
+    static func apiKeyProblem(_ apiKey: String) -> APIKeyProblem? {
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return .empty }
+        if trimmed.hasPrefix("sk_") { return .secret }
+        return nil
+    }
+
+    static func recordPurchase(
+        _ purchaseResult: Product.PurchaseResult,
+        using recorder: @Sendable (Product.PurchaseResult) async throws -> Void
+    ) async throws {
+        try await recorder(purchaseResult)
+    }
 
     /// How ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
     /// forwards the coupled `purchasesAreCompletedBy` / `storeKitVersion` pair to RevenueCat's

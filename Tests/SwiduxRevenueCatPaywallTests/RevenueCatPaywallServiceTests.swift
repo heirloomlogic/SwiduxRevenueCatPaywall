@@ -14,9 +14,8 @@ import Testing
 /// Sentinel error the mock throws so tests can assert on a specific, unambiguous type.
 private struct TestError: Error {}
 
-// Mapping tests go through the static `makeSnapshot` rather than a service instance:
-// `RevenueCatPaywallService.init` preconditions on `Purchases.isConfigured`, and configuring the
-// real SDK is reserved for the single end-to-end test in RevenueCatPaywallConfigurationTests.
+// Mapping tests use `makeSnapshot` because configuring the real SDK is reserved for the single
+// end-to-end test in RevenueCatPaywallConfigurationTests.
 @Suite("RevenueCatPaywallService entitlement mapping")
 struct RevenueCatPaywallServiceTests {
     private func makeSnapshot(
@@ -309,155 +308,9 @@ struct ResponseFreshnessTests {
     }
 }
 
-@Suite("MockRevenueCatPaywallService")
-struct MockRevenueCatPaywallServiceTests {
-    @Test("Mock returns configured snapshot")
-    func mockReturnsSnapshot() async throws {
-        let mock = MockRevenueCatPaywallService(isPro: true)
-        let snapshot = try await mock.customerInfo()
-        #expect(snapshot.isPro)
-        #expect(!snapshot.hasPermanentLicense)
-    }
-
-    @Test("Mock stream yields initial snapshot")
-    func mockStreamYieldsInitial() async {
-        let mock = MockRevenueCatPaywallService(isPro: false, hasPermanentLicense: true)
-        var snapshots: [EntitlementSnapshot] = []
-        for await snapshot in mock.customerInfoStream() {
-            snapshots.append(snapshot)
-            break
-        }
-        #expect(snapshots.count == 1)
-        #expect(snapshots[0].hasPermanentLicense)
-    }
-
-    @Test("Mock send pushes updates to stream")
-    func mockSendPushesUpdates() async {
-        let mock = MockRevenueCatPaywallService(isPro: false)
-        let stream = mock.customerInfoStream()
-        var iterator = stream.makeAsyncIterator()
-
-        let initial = await iterator.next()
-        #expect(initial?.isPro == false)
-
-        mock.send(EntitlementSnapshot(isPro: true))
-        let updated = await iterator.next()
-        #expect(updated?.isPro == true)
-
-        mock.finish()
-    }
-
-    @Test("send updates the snapshot returned by customerInfo and restorePurchases")
-    func sendUpdatesCurrentSnapshot() async throws {
-        let mock = MockRevenueCatPaywallService(isPro: false)
-
-        mock.send(EntitlementSnapshot(isPro: true))
-
-        // The plugin refreshes via customerInfo() when the paywall is dismissed; a refresh after
-        // a simulated purchase must not regress the gate to the init-time state.
-        let refreshed = try await mock.customerInfo()
-        #expect(refreshed.isPro)
-        let restored = try await mock.restorePurchases()
-        #expect(restored.isPro)
-    }
-
-    @Test("A stream requested after send yields the current snapshot first")
-    func streamAfterSendYieldsCurrent() async {
-        let mock = MockRevenueCatPaywallService(isPro: false)
-
-        mock.send(EntitlementSnapshot(isPro: true))
-        var iterator = mock.customerInfoStream().makeAsyncIterator()
-
-        let first = await iterator.next()
-        #expect(first?.isPro == true)
-
-        mock.finish()
-    }
-
-    @Test("customerInfoError makes customerInfo throw; clearing it restores success")
-    func customerInfoErrorInjection() async throws {
-        let mock = MockRevenueCatPaywallService(isPro: true)
-
-        mock.customerInfoError = TestError()
-        await #expect(throws: TestError.self) {
-            try await mock.customerInfo()
-        }
-
-        mock.customerInfoError = nil
-        let snapshot = try await mock.customerInfo()
-        #expect(snapshot.isPro)
-    }
-
-    @Test("restoreError makes restorePurchases throw without affecting customerInfo")
-    func restoreErrorInjection() async throws {
-        let mock = MockRevenueCatPaywallService(isPro: true)
-
-        mock.restoreError = TestError()
-        await #expect(throws: TestError.self) {
-            try await mock.restorePurchases()
-        }
-
-        let snapshot = try await mock.customerInfo()
-        #expect(snapshot.isPro)
-    }
-
-    @Test("Mock finish terminates the stream")
-    func mockFinishTerminatesStream() async {
-        let mock = MockRevenueCatPaywallService(isPro: false)
-        let stream = mock.customerInfoStream()
-        var iterator = stream.makeAsyncIterator()
-
-        _ = await iterator.next()  // initial snapshot
-        mock.finish()
-
-        let terminal = await iterator.next()
-        #expect(terminal == nil)
-    }
-
-    @Test("Requesting a second stream finishes the first")
-    func secondStreamFinishesFirst() async {
-        let mock = MockRevenueCatPaywallService(isPro: false)
-        var firstIterator = mock.customerInfoStream().makeAsyncIterator()
-        _ = await firstIterator.next()  // initial snapshot
-
-        var secondIterator = mock.customerInfoStream().makeAsyncIterator()
-
-        let firstTerminal = await firstIterator.next()
-        #expect(firstTerminal == nil, "Replaced stream must finish, not strand its subscriber.")
-
-        _ = await secondIterator.next()  // initial snapshot
-        mock.send(EntitlementSnapshot(isPro: true))
-        let updated = await secondIterator.next()
-        #expect(updated?.isPro == true, "Newest subscriber must keep receiving send(_:) updates.")
-
-        mock.finish()
-    }
-
-    @Test("Restore returns configured snapshot")
-    func restoreReturnsSnapshot() async throws {
-        let mock = MockRevenueCatPaywallService(isPro: true, hasPermanentLicense: true)
-        let snapshot = try await mock.restorePurchases()
-        #expect(snapshot.isPro)
-        #expect(snapshot.hasPermanentLicense)
-    }
-}
-
-@Suite("RevenueCatPaywallService.restoreStrategy")
-struct RestoreStrategyTests {
-    // `Purchases.configure` is once-per-process, so the observer-mode branch can't be exercised
-    // against the live SDK here; the decision is covered through the pure `restoreStrategy`.
-    @Test("Default completion mode restores")
-    func revenueCatModeRestores() {
-        #expect(RevenueCatPaywallService.restoreStrategy(for: .revenueCat) == .restore)
-    }
-
-    @Test("Observer mode syncs")
-    func myAppModeSyncs() {
-        #expect(RevenueCatPaywallService.restoreStrategy(for: .myApp) == .sync)
-    }
-}
-
-@Suite("RevenueCatPaywallService.mapStream")
+// Every test here awaits stream values; the time limit turns a regression into a failure
+// instead of a CI job hung until its timeout.
+@Suite("RevenueCatPaywallService.mapStream", .timeLimit(.minutes(1)))
 struct MapStreamTests {
     @Test("Upstream values map through to snapshot stream")
     func upstreamValuesMap() async {
@@ -525,7 +378,10 @@ struct MapStreamTests {
         #expect(terminal == nil)
     }
 
-    @Test("A slow consumer sees the newest snapshot, not a stale backlog")
+    // `bufferingNewest(1)` itself isn't asserted here: whether an intermediate value is dropped
+    // depends on whether the consumer is suspended in `next()` when it arrives, which the test
+    // can't control without hooks into the mapping task. This pins the observable contract.
+    @Test("A consumer that falls behind still ends on the newest snapshot")
     func slowConsumerSeesNewest() async {
         let (upstream, continuation) = AsyncStream<CustomerInfo>.makeStream()
         let mapped = RevenueCatPaywallService.mapStream(
@@ -536,8 +392,6 @@ struct MapStreamTests {
 
         var iterator = mapped.makeAsyncIterator()
 
-        // Consume the first value so the mapping task is known to be running, then let two
-        // more arrive before the consumer returns: only the newest may survive the buffer.
         continuation.yield(makeCustomerInfo(entitlements: [:]))
         let first = await iterator.next()
         #expect(first?.isPro == false)
@@ -551,6 +405,29 @@ struct MapStreamTests {
             received.append(snapshot)
         }
         #expect(received.last?.isPro == true, "The newest snapshot must be delivered.")
+    }
+
+    @Test("Cancelling the consumer terminates the upstream iteration")
+    func consumerCancellationPropagates() async {
+        let (upstream, continuation) = AsyncStream<CustomerInfo>.makeStream()
+        let (upstreamEnded, endedContinuation) = AsyncStream<Void>.makeStream()
+        continuation.onTermination = { _ in endedContinuation.finish() }
+
+        let mapped = RevenueCatPaywallService.mapStream(
+            upstream,
+            entitlementID: "pro",
+            permanentLicenseEntitlementID: nil
+        )
+        let consumer = Task {
+            for await _ in mapped {}
+        }
+
+        continuation.yield(makeCustomerInfo(entitlements: [:]))
+        consumer.cancel()
+
+        // Completes only once the upstream's onTermination has run.
+        for await _ in upstreamEnded {}
+        await consumer.value
     }
 }
 

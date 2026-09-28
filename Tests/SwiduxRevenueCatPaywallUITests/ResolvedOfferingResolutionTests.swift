@@ -22,6 +22,7 @@ private func makeOffering(identifier: String) -> Offering {
 }
 
 @Suite("ResolvedOfferingPaywallView.resolution")
+@MainActor
 struct ResolvedOfferingResolutionTests {
     @Test("A fetched offering resolves to .resolved carrying that offering")
     func fetchedOfferingResolves() {

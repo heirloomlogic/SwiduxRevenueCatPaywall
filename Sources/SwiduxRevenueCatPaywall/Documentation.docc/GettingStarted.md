@@ -50,6 +50,8 @@ struct MyApp: App {
 }
 ```
 
+The service itself is safe to construct before configuration. If stored-property initialization creates the store first, configure RevenueCat before dispatching paywall actions. An early read or restore throws ``RevenueCatPaywallError/notConfigured``; an early entitlement stream finishes and can be started again after configuration. Swidux 1.9 and later clears the plugin's observation guard when that stream ends.
+
 Pass `appUserID`, `userDefaults` (for app-group sharing with widgets), `logLevel`, `entitlementVerification` (signed entitlement verification), or `purchasesAreCompletedBy`/`storeKitVersion` (app-completed purchases) if you need them — see ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``.
 
 ## Register the paywall plugin
@@ -88,7 +90,7 @@ extension Store where State == AppState, Action == AppAction {
 
 `ResilientPaywallService` (from SwiduxPaywall) persists the last entitlement snapshot a successful read delivered. Without it, a slow or failing network at cold launch leaves `PaywallState` at its free default and gates paying users out of their features until the first successful read; with it, the last-known-good state holds until live data arrives, and the server stays authoritative — a genuine lapse is honoured on the next successful read. Wrap the RevenueCat service in it for production.
 
-Back the cache with `KeychainKeyValueStore`, as shown, rather than `UserDefaultsKeyValueStore`. The cache vouches for a paid entitlement while RevenueCat is unreachable, and a `UserDefaults` plist is user-editable and restorable from a doctored backup; the Keychain is neither. See Swidux's [Security Posture](https://heirloomlogic.github.io/Swidux/documentation/swidux/securityposture) for what the cache does and does not defend against.
+Back the cache with `KeychainKeyValueStore`, as shown, rather than `UserDefaultsKeyValueStore`. The cache vouches for a paid entitlement while RevenueCat is unreachable, and a `UserDefaults` plist is user-editable and restorable from a doctored backup; the Keychain uses OS-protected storage instead of a user-editable plist. See Swidux's [Security Posture](https://heirloomlogic.github.io/Swidux/documentation/swidux/securityposture) for what the cache does and does not defend against.
 
 Start the entitlement stream on the root view so the gate reflects RevenueCat's state from launch:
 
@@ -98,7 +100,10 @@ struct ContentView: View {
 
     var body: some View {
         RootContent()
-            .task { store.send(.paywall(.observeCustomerInfo)) }
+            .task {
+                store.send(.paywall(.observeCustomerInfo))
+                store.send(.paywall(.refreshCustomerInfo))
+            }
     }
 }
 ```

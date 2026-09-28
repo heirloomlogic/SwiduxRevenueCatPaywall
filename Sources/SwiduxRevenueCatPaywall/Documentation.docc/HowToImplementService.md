@@ -67,18 +67,35 @@ struct MyApp: App {
 }
 ```
 
-If users sign in after launch, switch the purchase provider to them with `RevenueCatPaywall.logIn(appUserID:)` and back with `RevenueCatPaywall.logOut()` — like `configure`, these wrappers keep the RevenueCat import out of your app target. The entitlement stream delivers the new user's entitlements automatically.
+If users sign in after launch, switch the purchase provider with `RevenueCatPaywall.logIn(appUserID:)` and `RevenueCatPaywall.logOut()`. The stream delivers new customer info when RevenueCat obtains it; an offline transition may produce no update. `logOut()` returns immediately for an already anonymous user. A thrown network error does not prove that the old identity remains active, so refresh once connectivity returns.
 
-> Warning: A sign-out made offline keeps the previous user's entitlement. RevenueCat switches to a new anonymous user locally but cannot fetch its entitlements, so `logOut()` throws, no new snapshot arrives, and both `store.paywall` and the `ResilientPaywallService` cache (Step 3) keep the signed-out user's access — the cache across relaunches — until a read succeeds. On a shared device the next person inherits it. Swidux is adding a cache-clear hook to `ResilientPaywallService` for sign-out; until it ships, remove `.lastKnownEntitlement` from the key-value store you gave the decorator after signing out (`keyValueStore.removeValue(for: .lastKnownEntitlement)`), whether or not `logOut()` throws.
+> Warning: This adapter does not reset `PaywallState` or isolate the decorator cache and delayed stream/read results across account changes. A valid old-account cache must never be used as a new account's fallback. The host app must prevent old access from appearing during a transition; see [account isolation issue #46](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/issues/46) for the unfinished state, cache, and stream contract. Removing `.lastKnownEntitlement` alone does not reset displayed state or stop delayed results. The merged `ResilientPaywallService.clearCache()` is not yet in a published Swidux release and is not used here.
 
-> Important: `Purchases.shared` traps if used unconfigured. Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before anything that constructs `RevenueCatPaywallService`, including SwiftUI previews — guard preview-only code with `MockRevenueCatPaywallService` instead.
+> Important: Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before dispatching paywall work. Constructing `RevenueCatPaywallService` earlier is safe, but reads and restores throw ``RevenueCatPaywallError/notConfigured`` and the entitlement stream finishes immediately until configuration runs.
+
+### App-owned StoreKit 2 purchases
+
+When the app owns purchases, configure with `purchasesAreCompletedBy: .myApp` and the StoreKit version the app uses. For StoreKit 2 purchases made outside the bundled paywall, report the original result before finishing a verified transaction:
+
+```swift
+import StoreKit
+import SwiduxRevenueCatPaywall
+
+let result = try await product.purchase()
+try await RevenueCatPaywall.recordPurchase(result)
+
+if case .success(.verified(let transaction)) = result {
+    await transaction.finish()
+}
+```
+
+The package exposes only StoreKit types. Apps do not import RevenueCat. The bundled paywall performs this reporting and finishing sequence when you pass `RevenueCatPaywallPurchaseLogic`; see <doc:HowToPresentTheUI>.
 
 ## Step 3: Construct the service
 
 Create the service with the entitlement identifier you set up in the RevenueCat dashboard:
 
 ```swift
-import Swidux
 import SwiduxPaywall
 import SwiduxRevenueCatPaywall
 
@@ -88,9 +105,9 @@ let service = ResilientPaywallService(
 )
 ```
 
-`ResilientPaywallService` (from SwiduxPaywall) persists the last entitlement snapshot a successful read delivered, so a slow or failing network at cold launch never gates a paying user as free — the last-known-good state holds until live data arrives, and a genuine lapse is honoured on the next successful read. The bare `RevenueCatPaywallService` works too, but for production the resilient wrapper is the right default.
+Back this cache with the Keychain as shown; a `UserDefaults` plist is user-editable and can be restored from a doctored backup. Account isolation during sign-out and sign-in remains the host application's responsibility (see [#46](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/issues/46)).
 
-Back the cache with `KeychainKeyValueStore`, never `UserDefaultsKeyValueStore`. The cache vouches for a paid entitlement while RevenueCat is unreachable, and a `UserDefaults` plist is user-editable and restorable from a doctored backup, so a forged entry would unlock pro offline; the Keychain is encrypted and not plist-editable. On an unsigned macOS development build the Keychain can be unreachable (`errSecMissingEntitlement`, −34018), in which case the store degrades to a cache miss rather than trapping. See Swidux's [Security Posture](https://heirloomlogic.github.io/Swidux/documentation/swidux/securityposture) for the full threat model.
+`ResilientPaywallService` (from SwiduxPaywall) persists the last entitlement snapshot a successful read delivered, so a slow or failing network at cold launch never gates a paying user as free — the last-known-good state holds until live data arrives, and a genuine lapse is honoured on the next successful read. The bare `RevenueCatPaywallService` works too, but for production the resilient wrapper is the right default.
 
 If your app sells a separate lifetime SKU alongside a subscription, see <doc:HowToAddAPermanentLicense> for the dual-entitlement form.
 
@@ -141,12 +158,19 @@ struct ContentView: View {
 
     var body: some View {
         RootContent()
-            .task { store.send(.paywall(.observeCustomerInfo)) }
+            .task {
+                store.send(.paywall(.observeCustomerInfo))
+                store.send(.paywall(.refreshCustomerInfo))
+            }
     }
 }
 ```
 
 `observeCustomerInfo` returns a long-lived effect that consumes `RevenueCatPaywallService.customerInfoStream()`. Every snapshot the service yields flows through `.customerInfoUpdated` and updates `store.paywall.isPro` / `hasPermanentLicense`. The effect lives for the duration of the stream, so the store stays in sync with RevenueCat without polling.
+
+The accompanying `refreshCustomerInfo` seeds the state. A new stream yields the customer info RevenueCat last delivered in this process, but RevenueCat may not have delivered one yet — on a relaunch with a fresh cache it skips the launch fetch — and the stream then stays silent until the next change.
+
+If observation starts before configuration, the stream finishes. Swidux 1.9 and later clears its observation guard at that point. After configuring RevenueCat, dispatch both `.observeCustomerInfo` and `.refreshCustomerInfo` again; the new stream uses `Purchases.shared` and the refresh seeds current state.
 
 ## Step 6: Gate features
 
@@ -166,7 +190,7 @@ Button("Export PDF") {
 
 ## Step 7: Wire the UI
 
-To present `RevenueCatUI.PaywallView` and the customer center, attach the bundled sheets to a root view. See <doc:HowToPresentTheUI>.
+To present `RevenueCatUI.PaywallView` and the customer center, attach the bundled modifier once to one app-wide presentation host. See <doc:HowToPresentTheUI>.
 
 ## Step 8: Restore purchases
 
@@ -179,13 +203,13 @@ Button("Restore Purchases") {
 .disabled(store.paywall.isLoading)
 ```
 
-The plugin calls `RevenueCatPaywallService.restorePurchases()`, which forwards to `Purchases.shared.restorePurchases()`. On success the resulting snapshot flows through `.customerInfoUpdated` and updates the gate. On failure, `store.paywall.error` is set.
+The plugin calls `RevenueCatPaywallService.restorePurchases()`, which forwards to RevenueCat's user-initiated `restorePurchases()` flow in both completion modes. That flow refreshes the App Store receipt before posting transactions, so it can recover subscriptions missing from the device receipt. On success the resulting snapshot flows through `.customerInfoUpdated` and updates the gate. On failure, `store.paywall.error` is set.
 
-> Note: If you configured `purchasesAreCompletedBy: .myApp`, the service handles restore correctly for you: it calls `syncPurchases()` instead of `restorePurchases()`, because in observer mode a restore can alias or transfer purchases between accounts. Dispatching `.restorePurchases` stays safe in either mode — no special-casing in your app code.
+`syncPurchases()` remains useful for background migration after login, but it reads only the receipt already on the device and can alias or transfer purchases under the RevenueCat project's restore behavior. It is not the implementation of the explicit Restore Purchases action.
 
 ## Step 9: Handle errors
 
-The service throws whatever `Purchases.shared` throws — `ErrorCode.networkError`, `.offlineConnectionError`, configuration errors, etc. — plus `RevenueCatPaywallError.verificationFailed` when a response fails entitlement signature verification. The plugin catches the error and dispatches `.refreshFailed(message)`. Read `store.paywall.error` from your paywall view to surface a retry affordance:
+Before RevenueCat is configured, reads and restores throw ``RevenueCatPaywallError/notConfigured``. A failed signature throws ``RevenueCatPaywallError/verificationFailed``; configured calls can also throw SDK errors such as `ErrorCode.networkError`. The plugin handles failed reads with `.refreshFailed(message)` when no valid cache fallback exists. Read `store.paywall.error` from your paywall view to surface a retry affordance:
 
 ```swift
 if let error = store.paywall.error {

@@ -101,6 +101,40 @@ struct RevenueCatPaywallModifierTests {
             )
         }
     }
+
+    @Test("The state modifier forwards requestedReason as a placement")
+    func requestedReasonBecomesPlacement() {
+        let modifier = RevenueCatPaywallModifier(
+            state: PaywallState(isPresented: true, requestedReason: "export"),
+            offeringIdentifier: nil,
+            displayCloseButton: true,
+            send: { _ in }
+        )
+
+        #expect(modifier.placementIdentifier == "export")
+    }
+
+    @Test("An explicit offering identifier takes precedence over requestedReason")
+    func explicitOfferingTakesPrecedence() {
+        let modifier = RevenueCatPaywallModifier(
+            state: PaywallState(isPresented: true, requestedReason: "export"),
+            offeringIdentifier: "winback",
+            displayCloseButton: true,
+            send: { _ in }
+        )
+
+        #expect(modifier.placementIdentifier == nil)
+    }
+
+    @Test("Automatic presentation uses the platform default")
+    func automaticPresentationUsesPlatformDefault() {
+        #if os(iOS)
+        #expect(RevenueCatPaywallPresentationStyle.automatic.resolved(horizontalSizeClass: .compact) == .fullScreen)
+        #expect(RevenueCatPaywallPresentationStyle.automatic.resolved(horizontalSizeClass: .regular) == .sheet)
+        #else
+        #expect(RevenueCatPaywallPresentationStyle.automatic.resolved() == .sheet)
+        #endif
+    }
 }
 
 private final class ActionRecorder: @unchecked Sendable {

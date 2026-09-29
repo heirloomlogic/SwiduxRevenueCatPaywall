@@ -41,15 +41,40 @@ struct ResolvedOfferingResolutionTests {
 
     @Test("A missing offering falls back to the current offering")
     func missingOfferingFallsBack() {
+        var assertedIdentifier: String?
         let resolution = ResolvedOfferingPaywallView.resolution(
             from: .success(nil),
-            identifier: "missing"
+            identifier: "missing",
+            assertMissing: { assertedIdentifier = $0 }
         )
 
         guard case .currentOffering = resolution else {
             Issue.record("Expected .currentOffering, got \(resolution)")
             return
         }
+        #expect(assertedIdentifier == "missing")
+    }
+
+    @Test("A cancelled missing-offering resolution skips assertion side effects")
+    func cancelledMissingOfferingSkipsAssertion() async {
+        var assertedIdentifier: String?
+        let task = Task { @MainActor in
+            while !Task.isCancelled { await Task.yield() }
+            return ResolvedOfferingPaywallView.resolution(
+                from: .success(nil),
+                identifier: "superseded",
+                assertMissing: { assertedIdentifier = $0 }
+            )
+        }
+
+        task.cancel()
+        let resolution = await task.value
+
+        guard case .currentOffering = resolution else {
+            Issue.record("Expected .currentOffering, got \(resolution)")
+            return
+        }
+        #expect(assertedIdentifier == nil)
     }
 
     @Test("A failed fetch falls back to the current offering")

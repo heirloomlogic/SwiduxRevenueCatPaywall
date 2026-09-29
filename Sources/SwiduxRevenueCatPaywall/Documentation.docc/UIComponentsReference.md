@@ -23,7 +23,7 @@ The UI product depends on `SwiduxRevenueCatPaywall` and `RevenueCatUI`, both pul
 
 ## Modifiers
 
-### `revenueCatPaywall(isPresented:offeringIdentifier:displayCloseButton:purchaseLogic:onDismiss:)`
+### `revenueCatPaywall(isPresented:offeringIdentifier:displayCloseButton:fonts:presentationStyle:purchaseLogic:onEvent:onDismiss:)`
 
 ```swift
 extension View {
@@ -31,7 +31,10 @@ extension View {
         isPresented: Binding<Bool>,
         offeringIdentifier: String? = nil,
         displayCloseButton: Bool = true,
+        fonts: any PaywallFontProvider = DefaultPaywallFontProvider(),
+        presentationStyle: RevenueCatPaywallPresentationStyle = .automatic,
         purchaseLogic: RevenueCatPaywallPurchaseLogic? = nil,
+        onEvent: RevenueCatPaywallEventHandler? = nil,
         onDismiss: (() -> Void)? = nil
     ) -> some View
 }
@@ -39,7 +42,7 @@ extension View {
 
 Attaches `RevenueCatUI.PaywallView` as a platform-appropriate sheet.
 
-- **iOS** — Presents in a `fullScreenCover` so the paywall takes the full screen.
+- **iOS** — The automatic style uses a full-screen cover at compact width and a sheet at regular width.
 - **macOS** — Presents in a `sheet` sized to a 400×600 minimum.
 
 Pass a real two-way binding; SwiftUI sets it to `false` on user dismissal. Build it from `PaywallState.isPresented` so the `set:` closure dispatches `.paywall(.dismiss)` and the plugin clears its presentation state.
@@ -47,10 +50,15 @@ Pass a real two-way binding; SwiftUI sets it to `false` on user dismissal. Build
 #### Parameters
 
 - `isPresented` — Two-way binding to the paywall's visibility flag.
-- `offeringIdentifier` — Identifier of the RevenueCat offering to present, for a win-back or regional offer. Defaults to `nil`, which presents the dashboard's current offering. An unknown identifier or a failed fetch falls back to the current offering with a logged warning.
-- `displayCloseButton` — Whether `PaywallView` shows a close button. Defaults to `true`. Neither the iOS `fullScreenCover` nor the macOS `sheet` offers any other dismissal affordance, so pass `false` only for a hard paywall the user must purchase through.
+- `offeringIdentifier` — Identifier of the RevenueCat offering to present, for a win-back or regional offer. Defaults to `nil`, which presents the dashboard's current offering. An unknown identifier asserts in Debug and falls back to the current offering with a logged warning; a fetch failure also falls back without asserting.
+- `displayCloseButton` — Whether `PaywallView` shows a close button. Defaults to `true`. When `false`, iOS sheets disable interactive dismissal. On macOS, Escape dismisses only when this is `true`.
+- `fonts` — RevenueCatUI font provider used by every resolved paywall.
+- `presentationStyle` — `.automatic` adapts to iOS width and uses a sheet on macOS. iOS callers can force `.sheet` or `.fullScreen`.
 - `purchaseLogic` — App-owned StoreKit 2 purchase and restore operations for `purchasesAreCompletedBy: .myApp`. Leave `nil` when RevenueCat completes purchases.
+- `onEvent` — Optional callback for package-owned purchase, restore, cancellation, purchase-failure, and restore-failure values. It exposes Foundation identifiers and error fields instead of RevenueCat models.
 - `onDismiss` — Optional callback fired after dismissal.
+
+Dashboard exit offers do not run through these modifiers. RevenueCatUI implements them in its own `presentPaywall` modifiers, which always add a close button; using that path here would change `displayCloseButton: false` from a hard paywall into a dismissible one. Apps that need exit offers should use RevenueCatUI's presenter directly.
 
 ### `revenueCatCustomerCenter(isPresented:onDismiss:)`
 
@@ -73,7 +81,7 @@ Attaches the customer center as a platform-appropriate sheet.
 - `isPresented` — Two-way binding to the customer center's visibility flag.
 - `onDismiss` — Optional callback fired after dismissal (or, on macOS, after the App Store URL is opened).
 
-### `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:purchaseLogic:send:)`
+### `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:fonts:presentationStyle:purchaseLogic:onEvent:send:)`
 
 ```swift
 extension View {
@@ -81,22 +89,28 @@ extension View {
         state: PaywallState,
         offeringIdentifier: String? = nil,
         displayCloseButton: Bool = true,
+        fonts: any PaywallFontProvider = DefaultPaywallFontProvider(),
+        presentationStyle: RevenueCatPaywallPresentationStyle = .automatic,
         purchaseLogic: RevenueCatPaywallPurchaseLogic? = nil,
+        onEvent: RevenueCatPaywallEventHandler? = nil,
         send: @escaping (PaywallAction) -> Void
     ) -> some View
 }
 ```
 
-Convenience modifier that attaches both `revenueCatPaywall(isPresented:offeringIdentifier:displayCloseButton:purchaseLogic:onDismiss:)` and `revenueCatCustomerCenter(isPresented:onDismiss:)` and dispatches the matching actions through `send`.
+Convenience modifier that attaches both primitive presentation surfaces and dispatches the matching actions through `send`.
 
 On iOS the two presentations are mutually exclusive and the paywall wins. On macOS a customer-center request dispatches `.openManageSubscriptions` through the paywall plugin, then `.dismissCustomerCenter`; the external App Store hand-off remains available while the paywall sheet is open. After a restore inside the paywall, the modifier also dispatches `.dismiss` once `state.isGateSatisfied` is `true`, because RevenueCatUI does not dismiss after a restore. Attach the modifier once to one app-wide presentation host. See *Platform Behavior* in the `SwiduxRevenueCatPaywall` documentation.
 
 #### Parameters
 
 - `state` — The paywall slice from your store, typically `store.paywall`.
-- `offeringIdentifier` — Identifier of the RevenueCat offering to present. Defaults to `nil` (the dashboard's current offering); see the primitive modifier above.
+- `offeringIdentifier` — Identifier of the RevenueCat offering to present. When it is `nil`, `state.requestedReason` is used as a RevenueCat placement identifier. For an unknown placement, RevenueCat may return the dashboard's placement fallback offering, which can differ from the current offering; the package uses the current offering when RevenueCat returns no placement fallback. An explicit identifier takes precedence.
 - `displayCloseButton` — Whether `PaywallView` shows a close button. Defaults to `true`; see the primitive modifier above.
+- `fonts` — RevenueCatUI font provider used by the paywall.
+- `presentationStyle` — Automatic or explicit iOS presentation style; macOS always uses a sheet.
 - `purchaseLogic` — App-owned StoreKit 2 purchase and restore operations for `purchasesAreCompletedBy: .myApp`. Leave `nil` when RevenueCat completes purchases.
+- `onEvent` — Optional package-owned outcome callback; see the primitive modifier above.
 - `send` — A closure that lifts a `PaywallAction` into your root action and dispatches it through the store. Typically `{ store.send(.paywall($0)) }`.
 
 #### Manual wiring

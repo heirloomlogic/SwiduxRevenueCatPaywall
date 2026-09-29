@@ -1,10 +1,10 @@
 # Platform Behavior
 
-Why the `revenueCatPaywall` and `revenueCatCustomerCenter` modifiers present differently on iOS and macOS, and what is hard-coded.
+How the `revenueCatPaywall` and `revenueCatCustomerCenter` modifiers choose presentation, and which controls remain fixed.
 
 ## Overview
 
-The bundled UI is intentionally opinionated. Each modifier picks the platform-appropriate presentation so consumers don't have to repeat the conditional compilation themselves, and so the dispatch flow stays symmetric across platforms — the same `.paywall(.dismiss)` action fires from a `fullScreenCover` on iOS and from a sheet on macOS.
+The bundled UI chooses a platform-appropriate default while exposing the iOS presentation style. The same `.paywall(.dismiss)` action fires from every presentation.
 
 This article explains the reasoning behind those choices and what is fixed versus configurable.
 
@@ -12,10 +12,11 @@ This article explains the reasoning behind those choices and what is fixed versu
 
 | Platform | Presentation | Reason |
 |---|---|---|
-| **iOS** | `fullScreenCover` | A subscription paywall is a primary moment, not an interrupt. `fullScreenCover` keeps the UI immersive and prevents accidental gesture-dismiss. |
+| **iOS, compact width** | `fullScreenCover` | Compact screens keep the paywall immersive and avoid a cramped sheet. |
+| **iOS, regular width** | `sheet` | iPad and other regular-width hosts follow RevenueCatUI's sheet default. |
 | **macOS** | `sheet` with `frame(minWidth: 400, minHeight: 600)` | Mac sheets do not expand to fill the parent window. Without an explicit minimum size the paywall would render too small to legibly show plan options. The 400×600 minimum is roughly the size RevenueCatUI's templates assume. |
 
-Because neither presentation offers a system dismissal affordance (`fullScreenCover` has no swipe-to-dismiss; Mac sheets have no default close control), the modifiers show `PaywallView`'s close button by default. Pass `displayCloseButton: false` only for a hard paywall the user must purchase through — and make sure some other path out of that screen exists.
+The `.automatic` style uses the table above. iOS callers can force `.sheet` or `.fullScreen`; macOS always uses a sheet. The modifiers show `PaywallView`'s close button by default. When the close button is disabled, iOS sheets also disable interactive dismissal. On macOS, Escape clears the presentation binding only when the close button is enabled. Pass `displayCloseButton: false` only for a hard paywall the user must purchase through.
 
 The minimum frame is hard-coded; it is not exposed as a parameter. If your paywall layout needs more room on macOS, use `RevenueCatUI.PaywallView` directly inside a custom `sheet` modifier.
 
@@ -30,7 +31,7 @@ With the composed modifier, the macOS branch dispatches `.openManageSubscription
 
 ## Presentation coordination
 
-On iOS, the composed `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:purchaseLogic:send:)` modifier never shows the paywall and customer center at once. The paywall wins: while `PaywallState.isPresented` is `true`, the customer-center binding reads `false`, and an initial or later state with both flags set dispatches `.dismissCustomerCenter`.
+On iOS, the composed `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:fonts:presentationStyle:purchaseLogic:onEvent:send:)` modifier never shows the paywall and customer center at once. The paywall wins: while `PaywallState.isPresented` is `true`, the customer-center binding reads `false`, and an initial or later state with both flags set dispatches `.dismissCustomerCenter`.
 
 On macOS, subscription management is an external App Store hand-off rather than a second modal surface. The customer-center binding remains active while the paywall sheet is open, so the composed modifier dispatches `.openManageSubscriptions` and then `.dismissCustomerCenter` without losing the request.
 
@@ -40,13 +41,9 @@ Apps wiring the primitive modifiers manually own the iOS exclusivity rule.
 
 Attach the composed modifier once, to one app-wide presentation host. `PaywallState` is shared, so attaching the modifier inside every `WindowGroup` window or scene makes every copy respond to the same request. A multi-window app should choose one scene, such as its primary app or settings window, to own paywall presentation.
 
-## Why no platform-override hooks
+## Exit offers
 
-Both modifiers are deliberately parameter-light: an `isPresented: Binding<Bool>`, an optional `onDismiss: () -> Void`, and — on the paywall only — `displayCloseButton:`, `offeringIdentifier:`, and optional app-owned `purchaseLogic:`. There is no `paywallStyle:` or `presentationKind:` parameter.
-
-The reasoning: any consumer that needs to deviate from the chosen presentation already has the underlying RevenueCatUI types (`PaywallView`, `CustomerCenterView`) and SwiftUI's full presentation surface (`sheet`, `fullScreenCover`, `popover`, custom containers). The bundled modifiers exist to handle the 95% case in one line — when the 5% case applies, drop down to RevenueCatUI directly.
-
-This package does not try to be the complete paywall-UI library. It is the *integration layer* that makes the common case trivial.
+RevenueCat dashboard exit offers are unavailable through the bundled modifiers. RevenueCatUI implements exit offers in its own presentation modifiers, which always add a close button. This package embeds `PaywallView` so `displayCloseButton: false` remains a hard paywall. Use RevenueCatUI's presenter directly when exit offers are required.
 
 ## What is configurable
 
@@ -55,9 +52,12 @@ The configurable surface lives in `RevenueCatUI` and on the paywall plugin:
 - **Paywall content, copy, and template** — configured in the RevenueCat dashboard. `RevenueCatUI.PaywallView` renders whichever offering and template the dashboard returns.
 - **Customer-center labels, sections, and actions** — configured in the RevenueCat dashboard. `RevenueCatUI.CustomerCenterView` renders whichever configuration the dashboard returns.
 - **Close button** — `displayCloseButton:` on the paywall modifiers. Defaults to `true`; pass `false` for a hard paywall.
+- **Fonts** — `fonts:` accepts any RevenueCatUI `PaywallFontProvider`.
+- **Presentation** — `presentationStyle:` controls iOS sheet or full-screen presentation; `.automatic` follows horizontal size class.
+- **Outcomes** — `onEvent:` reports package-owned purchase, restore, cancellation, and failure values from inside the presentation boundary.
 - **Presentation triggering** — driven by the plugin via `PaywallState.isPresented` and `isCustomerCenterPresented`. Your code chooses *when* to set them via `.request(reason:)` and `.presentCustomerCenter` actions.
 - **Dismiss behavior** — dismiss actions are dispatched by the presentation bindings themselves (`.dismiss` for the paywall, `.dismissCustomerCenter` for the customer center). The primitive modifiers' `onDismiss` callbacks are purely additive — use them for analytics hooks or cleanup, not for dispatch.
-- **Offering selection** — `offeringIdentifier:` on the paywall modifiers presents a specific RevenueCat offering (a win-back or regional offer, for example). Omit it for the dashboard's current offering. An unknown identifier or a failed fetch falls back to the current offering with a logged warning, so a stale identifier degrades gracefully instead of dead-ending the purchase flow.
+- **Offering selection** — `offeringIdentifier:` presents a specific offering and takes precedence over placement targeting. The composed modifier otherwise passes `PaywallState.requestedReason` as a RevenueCat placement. For an unknown placement, RevenueCat may return the dashboard's placement fallback offering, which can differ from the current offering; the package uses the current offering when RevenueCat returns no placement fallback or the fetch fails. An unknown explicit identifier also asserts in Debug and logs a warning.
 
 ## See Also
 

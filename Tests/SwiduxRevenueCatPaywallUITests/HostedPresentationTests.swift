@@ -78,6 +78,30 @@ struct HostedIOSPresentationTests {
         try await Task.sleep(for: .milliseconds(100))
         #expect(recorder.events == [.dismissCustomerCenter])
     }
+
+    @Test("A hard paywall sheet disables interactive dismissal")
+    func hardPaywallSheetDisablesInteractiveDismissal() async throws {
+        RevenueCatPaywall.configure(
+            apiKey: "appl_test_api_key",
+            purchasesAreCompletedBy: .myApp,
+            storeKitVersion: .storeKit2
+        )
+        let controller = UIHostingController(
+            rootView: Color.clear.revenueCatPaywall(
+                isPresented: .constant(true),
+                displayCloseButton: false,
+                presentationStyle: .sheet
+            )
+        )
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+
+        try await waitUntil { controller.presentedViewController != nil }
+
+        #expect(controller.presentedViewController?.isModalInPresentation == true)
+    }
 }
 #endif
 

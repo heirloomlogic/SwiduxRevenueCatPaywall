@@ -22,17 +22,27 @@ printf 'ignored local tooling\n' > "$fixture/.dev-tooling"
 cat > "$fixture/Package.swift" <<'SWIFT'
 // swift-tools-version: 6.0
 
+import Foundation
 import PackageDescription
 
-let package = Package(
+var package = Package(
     name: "Fixture",
     dependencies: [
         .package(url: "https://example.com/dependency", from: "1.2.3"),
+        .package(name: "NamedDependency", url: "https://example.com/named-dependency", from: "4.5.6"),
     ],
     targets: [
         .target(name: "Fixture", dependencies: [.product(name: "Dependency", package: "dependency")]),
     ]
 )
+
+let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+if FileManager.default.fileExists(atPath: packageDirectory.appendingPathComponent(".dev-tooling").path) {
+    package.dependencies += [
+        .package(url: "https://example.com/dev-tool", from: "7.8.9"),
+        .package(name: "NamedDevTool", url: "https://example.com/named-dev-tool", from: "10.11.12"),
+    ]
+}
 SWIFT
 
 (
@@ -50,16 +60,19 @@ printf '%s\n' "$*" >> "$FLOOR_TEST_OBSERVATION_DIR/invocations"
 case "$*" in
     "package resolve")
         grep -Fq '.package(url: "https://example.com/dependency", exact: "1.2.3")' Package.swift
-        if grep -Fq 'from: "1.2.3"' Package.swift; then
-            printf 'floor requirement was not replaced\n' >&2
+        grep -Fq '.package(name: "NamedDependency", url: "https://example.com/named-dependency", exact: "4.5.6")' Package.swift
+        grep -Fq '.package(url: "https://example.com/dev-tool", exact: "7.8.9")' Package.swift
+        grep -Fq '.package(name: "NamedDevTool", url: "https://example.com/named-dev-tool", exact: "10.11.12")' Package.swift
+        if grep -Fq 'from:' Package.swift; then
+            printf 'a floor requirement was not replaced\n' >&2
             exit 1
         fi
         if [[ -e Package.resolved ]]; then
             printf 'the tracked lockfile was present before fresh resolution\n' >&2
             exit 1
         fi
-        if [[ -e .dev-tooling ]]; then
-            printf 'untracked dev tooling was copied\n' >&2
+        if [[ ! -e .dev-tooling ]]; then
+            printf 'conditional dev tooling was not activated\n' >&2
             exit 1
         fi
         cp Package.swift "$FLOOR_TEST_OBSERVATION_DIR/resolved-Package.swift"
@@ -92,7 +105,7 @@ fi
 
 exact_fixture="$test_root/exact-fixture"
 mkdir -p "$exact_fixture"
-sed 's/from: "1.2.3"/exact: "1.2.3"/' "$fixture/Package.swift" > "$exact_fixture/Package.swift"
+sed 's/from:/exact:/g' "$fixture/Package.swift" > "$exact_fixture/Package.swift"
 (
     cd "$exact_fixture"
     git init -q

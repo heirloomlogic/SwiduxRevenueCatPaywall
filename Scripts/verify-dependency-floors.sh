@@ -23,12 +23,14 @@ while IFS= read -r -d '' relative_path; do
     cp -p "$package_root/$relative_path" "$temporary_package/$relative_path"
 done < <(git -C "$package_root" ls-files -z -- .)
 
-perl -0pi -e '$count = s{(\.package\s*\(\s*url\s*:\s*"[^"]+"\s*,\s*)from(\s*:\s*"[^"]+"\s*\))}{$1exact$2}g; die "no from: dependency requirements found\n" unless $count;' "$temporary_package/Package.swift"
+touch "$temporary_package/.dev-tooling"
+
+perl -0pi -e '$pattern = qr{\.package\s*\(\s*(?:name\s*:\s*"[^"]+"\s*,\s*)?url\s*:\s*"[^"]+"\s*,\s*}; $count = s{($pattern)from(\s*:\s*"[^"]+"\s*\))}{$1exact$2}g; die "no from: dependency requirements found\n" unless $count; die "an unconverted from: dependency requirement remains\n" if /$pattern\Kfrom\s*:/;' "$temporary_package/Package.swift"
 
 rm -f "$temporary_package/Package.resolved"
 
 printf 'Testing exact dependency floors from Package.swift:\n'
-perl -ne 'while (/\.package\s*\(\s*url\s*:\s*"([^"]+)"\s*,\s*exact\s*:\s*"([^"]+)"/g) { printf "  %s @ %s\n", $1, $2 }' "$temporary_package/Package.swift"
+perl -ne 'while (/\.package\s*\(\s*(?:name\s*:\s*"[^"]+"\s*,\s*)?url\s*:\s*"([^"]+)"\s*,\s*exact\s*:\s*"([^"]+)"/g) { printf "  %s @ %s\n", $1, $2 }' "$temporary_package/Package.swift"
 
 cd "$temporary_package"
 swift package resolve

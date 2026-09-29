@@ -48,6 +48,56 @@ public struct RevenueCatPaywallService: PaywallService {
         self.permanentLicenseEntitlementID = permanentLicenseEntitlementID
     }
 
+    /// Switches RevenueCat to an application user and returns that user's verified entitlements.
+    ///
+    /// - Parameter appUserID: The stable identifier for the signed-in user.
+    /// - Returns: The identity observed after login and the mapped entitlement snapshot returned by RevenueCat.
+    /// - Throws: ``RevenueCatPaywallIdentityError``. Inspect `identityChanged` and `identityAfter` before deciding whether to keep or discard account-scoped state because RevenueCat can change identity before a later request fails.
+    @MainActor
+    public func logIn(
+        appUserID: String
+    ) async throws(RevenueCatPaywallIdentityError) -> RevenueCatPaywallIdentityResult {
+        guard Self.isConfigured else {
+            throw RevenueCatPaywallIdentityError(
+                operation: .logIn,
+                reason: .notConfigured,
+                identityBefore: nil,
+                identityAfter: nil
+            )
+        }
+        let purchases = Purchases.shared
+        return try await logIn(
+            currentIdentity: { Self.identity(of: purchases) },
+            operation: { try await purchases.logIn(appUserID).customerInfo }
+        )
+    }
+
+    /// Switches RevenueCat to an anonymous user and returns that user's verified entitlements.
+    ///
+    /// When the current identity is already anonymous, this method does not call RevenueCat's logout operation. It returns a verified cached snapshot when one is available; `snapshot` is otherwise `nil`.
+    ///
+    /// - Returns: The identity observed after logout and the mapped entitlement snapshot returned by RevenueCat.
+    /// - Throws: ``RevenueCatPaywallIdentityError``. Inspect `identityChanged` and `identityAfter` before deciding whether to keep or discard account-scoped state because RevenueCat can change identity before a later request fails.
+    @MainActor
+    public func logOut() async throws(RevenueCatPaywallIdentityError)
+        -> RevenueCatPaywallIdentityResult
+    {
+        guard Self.isConfigured else {
+            throw RevenueCatPaywallIdentityError(
+                operation: .logOut,
+                reason: .notConfigured,
+                identityBefore: nil,
+                identityAfter: nil
+            )
+        }
+        let purchases = Purchases.shared
+        return try await logOut(
+            currentIdentity: { Self.identity(of: purchases) },
+            cachedCustomerInfo: { purchases.cachedCustomerInfo },
+            operation: { try await purchases.logOut() }
+        )
+    }
+
     /// Fetches the current entitlement snapshot from RevenueCat.
     ///
     /// Calls `Purchases.shared.customerInfo()` and maps the result against the configured
@@ -100,6 +150,100 @@ public struct RevenueCatPaywallService: PaywallService {
     }
 
     // MARK: - Internal
+
+    @MainActor
+    func logIn(
+        currentIdentity: () -> RevenueCatPaywallIdentity,
+        operation: () async throws -> CustomerInfo
+    ) async throws(RevenueCatPaywallIdentityError) -> RevenueCatPaywallIdentityResult {
+        let identityBefore = currentIdentity()
+        return try await performIdentityOperation(
+            .logIn,
+            identityBefore: identityBefore,
+            currentIdentity: currentIdentity,
+            operation: operation
+        )
+    }
+
+    @MainActor
+    func logOut(
+        currentIdentity: () -> RevenueCatPaywallIdentity,
+        cachedCustomerInfo: () -> CustomerInfo?,
+        operation: () async throws -> CustomerInfo
+    ) async throws(RevenueCatPaywallIdentityError) -> RevenueCatPaywallIdentityResult {
+        let identityBefore = currentIdentity()
+        guard identityBefore != .anonymous else {
+            let snapshot = cachedCustomerInfo().flatMap {
+                try? snapshot(from: $0, nonLiveSource: .cache)
+            }
+            return RevenueCatPaywallIdentityResult(
+                identity: .anonymous,
+                snapshot: snapshot,
+                identityChanged: false
+            )
+        }
+        return try await performIdentityOperation(
+            .logOut,
+            identityBefore: identityBefore,
+            currentIdentity: currentIdentity,
+            operation: operation
+        )
+    }
+
+    @MainActor
+    private func performIdentityOperation(
+        _ operationKind: RevenueCatPaywallIdentityError.Operation,
+        identityBefore: RevenueCatPaywallIdentity,
+        currentIdentity: () -> RevenueCatPaywallIdentity,
+        operation: () async throws -> CustomerInfo
+    ) async throws(RevenueCatPaywallIdentityError) -> RevenueCatPaywallIdentityResult {
+        do {
+            let info = try await operation()
+            let snapshot = try snapshot(from: info, nonLiveSource: .cache)
+            let identityAfter = currentIdentity()
+            return RevenueCatPaywallIdentityResult(
+                identity: identityAfter,
+                snapshot: snapshot,
+                identityChanged: identityBefore != identityAfter
+            )
+        } catch {
+            throw RevenueCatPaywallIdentityError(
+                operation: operationKind,
+                reason: Self.identityFailureReason(from: error),
+                identityBefore: identityBefore,
+                identityAfter: currentIdentity()
+            )
+        }
+    }
+
+    private static func identity(of purchases: Purchases) -> RevenueCatPaywallIdentity {
+        purchases.isAnonymous ? .anonymous : .appUserID(purchases.appUserID)
+    }
+
+    static func identityFailureReason(
+        from error: any Error
+    ) -> RevenueCatPaywallIdentityError.Reason {
+        if error as? RevenueCatPaywallError == .verificationFailed {
+            return .verificationFailed
+        }
+        let nsError = error as NSError
+        guard nsError.domain == ErrorCode.errorDomain, let code = ErrorCode(rawValue: nsError.code)
+        else {
+            return .providerFailure
+        }
+        switch code {
+        case .invalidAppUserIdError:
+            return .invalidAppUserID
+        case .networkError, .offlineConnectionError, .apiEndpointBlockedError:
+            return .networkUnavailable
+        case .signatureVerificationFailed:
+            return .verificationFailed
+        case .configurationError, .invalidCredentialsError:
+            return .configuration
+        default:
+            return .providerFailure
+        }
+    }
 
     private static var isConfigured: Bool {
         guard Purchases.isConfigured else {

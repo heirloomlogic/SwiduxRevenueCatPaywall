@@ -204,6 +204,132 @@ private func probeFirstResult(
     }
 }
 
+@Suite("RevenueCatPaywallService identity", .serialized)
+@MainActor
+struct RevenueCatPaywallIdentityTests {
+    private let service = RevenueCatPaywallService(entitlementID: "pro")
+
+    @Test("Login returns the new identity and its verified entitlement snapshot")
+    func loginReturnsSnapshot() async throws {
+        var identity = RevenueCatPaywallIdentity.anonymous
+
+        let result = try await service.logIn(
+            currentIdentity: { identity },
+            operation: {
+                identity = .appUserID("member")
+                return makeCustomerInfo(
+                    entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)]
+                )
+            }
+        )
+
+        #expect(result.identity == .appUserID("member"))
+        #expect(result.identityChanged)
+        #expect(result.snapshot == EntitlementSnapshot(isPro: true))
+    }
+
+    @Test("Logout returns the anonymous identity and its verified entitlement snapshot")
+    func logoutReturnsSnapshot() async throws {
+        var identity = RevenueCatPaywallIdentity.appUserID("member")
+
+        let result = try await service.logOut(
+            currentIdentity: { identity },
+            cachedCustomerInfo: { nil },
+            operation: {
+                identity = .anonymous
+                return makeCustomerInfo(entitlements: [:])
+            }
+        )
+
+        #expect(result.identity == .anonymous)
+        #expect(result.identityChanged)
+        #expect(result.snapshot == EntitlementSnapshot())
+    }
+
+    @Test("Already-anonymous logout skips the SDK operation")
+    func anonymousLogoutIsNoOp() async throws {
+        var operationCalled = false
+
+        let result = try await service.logOut(
+            currentIdentity: { .anonymous },
+            cachedCustomerInfo: { nil },
+            operation: {
+                operationCalled = true
+                return makeCustomerInfo(entitlements: [:])
+            }
+        )
+
+        #expect(!operationCalled)
+        #expect(result.identity == .anonymous)
+        #expect(!result.identityChanged)
+        #expect(result.snapshot == nil)
+    }
+
+    @Test("A provider error reports an identity transition that happened before failure")
+    func providerFailureReportsTransition() async {
+        var identity = RevenueCatPaywallIdentity.appUserID("member")
+
+        do {
+            _ = try await service.logOut(
+                currentIdentity: { identity },
+                cachedCustomerInfo: { nil },
+                operation: {
+                    identity = .anonymous
+                    throw NSError(
+                        domain: ErrorCode.errorDomain,
+                        code: ErrorCode.offlineConnectionError.rawValue
+                    )
+                }
+            )
+            Issue.record("Expected logout to throw")
+        } catch {
+            #expect(error.operation == .logOut)
+            #expect(error.reason == .networkUnavailable)
+            #expect(error.identityBefore == .appUserID("member"))
+            #expect(error.identityAfter == .anonymous)
+            #expect(error.identityChanged)
+        }
+    }
+
+    @Test("A verification failure reports an identity transition that happened before mapping")
+    func verificationFailureReportsTransition() async {
+        var identity = RevenueCatPaywallIdentity.anonymous
+
+        do {
+            _ = try await service.logIn(
+                currentIdentity: { identity },
+                operation: {
+                    identity = .appUserID("member")
+                    return makeCustomerInfo(entitlements: [:], verification: .failed)
+                }
+            )
+            Issue.record("Expected login to throw")
+        } catch {
+            #expect(error.operation == .logIn)
+            #expect(error.reason == .verificationFailed)
+            #expect(error.identityBefore == .anonymous)
+            #expect(error.identityAfter == .appUserID("member"))
+            #expect(error.identityChanged)
+        }
+    }
+
+    @Test("RevenueCat identity error codes map to package reasons")
+    func providerErrorsAreMapped() {
+        func reason(_ code: ErrorCode) -> RevenueCatPaywallIdentityError.Reason {
+            RevenueCatPaywallService.identityFailureReason(
+                from: NSError(domain: ErrorCode.errorDomain, code: code.rawValue)
+            )
+        }
+
+        #expect(reason(.invalidAppUserIdError) == .invalidAppUserID)
+        #expect(reason(.networkError) == .networkUnavailable)
+        #expect(reason(.offlineConnectionError) == .networkUnavailable)
+        #expect(reason(.signatureVerificationFailed) == .verificationFailed)
+        #expect(reason(.configurationError) == .configuration)
+        #expect(reason(.unknownError) == .providerFailure)
+    }
+}
+
 @Suite("RevenueCatPaywall.recordPurchase")
 struct RecordPurchaseTests {
     @Test("Forwards the StoreKit result through the package bridge")

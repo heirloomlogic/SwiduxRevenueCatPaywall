@@ -57,6 +57,9 @@ The plugin and the adapter stay decoupled: the plugin doesn't know about Revenue
 
 - ``RevenueCatPaywallService``
 - ``RevenueCatPaywallError``
+- ``RevenueCatPaywallIdentity``
+- ``RevenueCatPaywallIdentityResult``
+- ``RevenueCatPaywallIdentityError``
 
 ### Testing
 

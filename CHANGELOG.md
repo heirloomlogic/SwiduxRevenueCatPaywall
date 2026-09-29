@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `RevenueCatPaywallService.logIn(appUserID:)` and `logOut()` return package-owned identity results with verified entitlement snapshots. Identity failures use package-owned reasons and record the identity before and after the failed operation.
 - `RevenueCatPaywall.recordPurchase(_:)` reports an app-owned StoreKit 2 purchase without exposing RevenueCat to the app target.
 - Both `revenueCatPaywall` modifiers accept `RevenueCatPaywallPurchaseLogic` for app-owned StoreKit 2 purchase and restore operations.
 
@@ -26,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- The namespace `RevenueCatPaywall.logIn(appUserID:)` and `logOut()` methods are deprecated in favor of the service methods. They remain as compatibility entry points and now map SDK failures to `RevenueCatPaywallIdentityError`.
 - The RevenueCat requirement is now `from: "5.90.1"`. Earlier SDKs can deliver a previous user's `CustomerInfo` after an identity change, so `logIn(appUserID:)` could report a paying user as free.
 - The Swidux requirement is now `from: "1.10.0"`, the published version pinned and exercised by this package.
 - `configure(apiKey:…)`'s `logLevel:` now defaults to `nil`, leaving the SDK's own default (`.debug` in Debug builds, `.info` in Release) instead of forcing `.info`.

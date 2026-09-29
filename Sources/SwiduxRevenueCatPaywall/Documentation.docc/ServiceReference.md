@@ -33,6 +33,8 @@ public struct RevenueCatPaywallService: PaywallService {
     public func customerInfo() async throws -> EntitlementSnapshot
     public func customerInfoStream() -> AsyncStream<EntitlementSnapshot>
     public func restorePurchases() async throws -> EntitlementSnapshot
+    @MainActor public func logIn(appUserID: String) async throws(RevenueCatPaywallIdentityError) -> RevenueCatPaywallIdentityResult
+    @MainActor public func logOut() async throws(RevenueCatPaywallIdentityError) -> RevenueCatPaywallIdentityResult
 }
 ```
 
@@ -76,6 +78,14 @@ Maps the result of RevenueCat's user-initiated `restorePurchases()` flow in ever
 
 The plugin's `.restorePurchases` action wraps this call and dispatches `.customerInfoUpdated` on success or `.refreshFailed` on error.
 
+#### Identity operations
+
+`logIn(appUserID:)` and `logOut()` switch the RevenueCat identity and map the returned customer info with the same entitlement identifiers and verification policy as `customerInfo()`. Their ``RevenueCatPaywallIdentityResult`` reports the identity observed after the call, whether it differs from the identity observed before the call, and the verified snapshot. An already-anonymous logout skips the SDK logout operation and may return `nil` for its snapshot when no verified customer info is cached.
+
+Both methods throw ``RevenueCatPaywallIdentityError`` instead of exposing RevenueCat errors. The error records the operation, a package-owned reason, and the identity observed before and after the failure. A provider operation can change identity before a later request or verification step fails, so callers must inspect `identityChanged` rather than treating every thrown error as an unchanged identity.
+
+Identity results do not reset `PaywallState`, clear `ResilientPaywallService` caches, or reject delayed work from the previous identity. [Issue #46](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/issues/46) owns that integration contract. The customer-info stream may later repeat a successful operation's result, but a failed offline transition is not guaranteed to yield a stream value.
+
 ## Entitlement mapping
 
 For every `CustomerInfo` the service receives:
@@ -97,3 +107,6 @@ Both flags are checked independently against the same `CustomerInfo`. A user wit
 - <doc:MockServiceReference>
 - ``RevenueCatPaywallService``
 - ``RevenueCatPaywallError``
+- ``RevenueCatPaywallIdentity``
+- ``RevenueCatPaywallIdentityResult``
+- ``RevenueCatPaywallIdentityError``

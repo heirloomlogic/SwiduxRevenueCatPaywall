@@ -68,7 +68,8 @@ let package = Package(
 //
 // `#filePath` anchors the lookup to this manifest's directory, independent of the current
 // working directory. Attaching the plugin here, after the package is constructed, keeps the
-// target list above free of gating noise.
+// target list above free of gating noise. Only library and test targets opt into Persnoop;
+// later executable, macro, and system-library targets do not inherit it.
 //
 // Toggling the sentinel on an already-evaluated package requires `swift package purge-cache`:
 // SwiftPM caches the evaluated manifest keyed on its source text alone, so a gate that reads
@@ -82,7 +83,7 @@ if FileManager.default.fileExists(atPath: devSentinel) {
         .package(url: "https://github.com/HeirloomLogic/Persnicket", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.5.0"),
     ]
-    for target in package.targets where target.type != .plugin && target.type != .binary {
+    for target in package.targets where target.type == .regular || target.type == .test {
         target.plugins = (target.plugins ?? []) + [.plugin(name: "Persnoop", package: "Persnicket")]
     }
 }

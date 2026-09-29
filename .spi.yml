@@ -1,3 +1,8 @@
 version: 1
+builder:
+  configs:
+    - documentation_targets:
+        - SwiduxRevenueCatPaywall
+        - SwiduxRevenueCatPaywallUI
 external_links:
   documentation: "https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/"

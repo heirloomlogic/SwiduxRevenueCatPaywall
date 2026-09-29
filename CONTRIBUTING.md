@@ -10,7 +10,13 @@ Without the sentinel, `swift build` resolves a clean, consumer-mode manifest: no
 touch .dev-tooling
 ```
 
-That enables lint-on-build (in Xcode and the command line) and lets `swift package generate-documentation` resolve the DocC plugin — identical to how CI runs.
+That enables Persnoop lint-on-build in Xcode and the command line, and lets `swift package generate-documentation` resolve the DocC plugin. CI also runs strict `swift-format` lint over every file in `Sources` and `Tests`. Run the same whole-tree check before pushing:
+
+```sh
+swift package resolve
+.build/checkouts/Persnicket/bin/ci-lint-setup
+xcrun swift-format lint --strict --parallel --recursive --configuration .swift-format Sources Tests
+```
 
 ## If you already built without the sentinel
 

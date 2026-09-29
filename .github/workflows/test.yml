@@ -19,6 +19,8 @@ concurrency:
 
 env:
   # Pin the toolchain so runner-image rotations can't flip CI without a repo change.
+  # The iPhone 17 destination below is coupled to this Xcode release. Confirm that
+  # the simulator remains available whenever this path changes.
   DEVELOPER_DIR: /Applications/Xcode_26.5.app
 
 jobs:
@@ -43,6 +45,9 @@ jobs:
           key: spm-test-macos-${{ env.DEVELOPER_DIR }}-${{ hashFiles('Package.resolved') }}
           restore-keys: |
             spm-test-macos-${{ env.DEVELOPER_DIR }}-
+
+      - name: Test dependency floor script
+        run: Scripts/verify-dependency-floors-tests.sh
 
       - name: Test
         run: swift test

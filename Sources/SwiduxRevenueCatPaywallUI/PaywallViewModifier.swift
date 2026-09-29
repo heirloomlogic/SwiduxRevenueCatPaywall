@@ -398,7 +398,7 @@ struct RevenueCatCustomerCenterSheetModifier: ViewModifier {
 /// no way out at all behind a hard paywall (`displayCloseButton: false`). Closing waits for
 /// RevenueCatUI's restore completion, which follows the user's acknowledgement of its success
 /// alert, and for the entitlement stream to report the restored access, whichever comes last.
-struct RevenueCatPaywallModifier: ViewModifier {
+struct RevenueCatPaywallAndCustomerCenterModifier: ViewModifier {
     let state: PaywallState
     let offeringIdentifier: String?
     let displayCloseButton: Bool
@@ -406,7 +406,7 @@ struct RevenueCatPaywallModifier: ViewModifier {
     let presentationStyle: RevenueCatPaywallPresentationStyle
     let purchaseLogic: RevenueCatPaywallPurchaseLogic?
     let onEvent: RevenueCatPaywallEventHandler?
-    let send: (PaywallAction) -> Void
+    let onAction: (PaywallAction) -> Void
 
     /// Restores RevenueCatUI has reported since the paywall was last presented. A counter rather
     /// than a flag so a second restore in the same presentation still registers as a change.
@@ -420,7 +420,7 @@ struct RevenueCatPaywallModifier: ViewModifier {
         presentationStyle: RevenueCatPaywallPresentationStyle = .automatic,
         purchaseLogic: RevenueCatPaywallPurchaseLogic? = nil,
         onEvent: RevenueCatPaywallEventHandler? = nil,
-        send: @escaping (PaywallAction) -> Void
+        onAction: @escaping (PaywallAction) -> Void
     ) {
         self.state = state
         self.offeringIdentifier = offeringIdentifier
@@ -429,7 +429,7 @@ struct RevenueCatPaywallModifier: ViewModifier {
         self.presentationStyle = presentationStyle
         self.purchaseLogic = purchaseLogic
         self.onEvent = onEvent
-        self.send = send
+        self.onAction = onAction
     }
 
     func body(content: Content) -> some View {
@@ -453,7 +453,7 @@ struct RevenueCatPaywallModifier: ViewModifier {
                     isPresented: customerCenterBinding,
                     onDismiss: nil,
                     onOpenSubscriptionManagement: {
-                        send(.openManageSubscriptions)
+                        onAction(.openManageSubscriptions)
                     }
                 )
             )
@@ -463,17 +463,17 @@ struct RevenueCatPaywallModifier: ViewModifier {
                     to: state,
                     restoreCompleted: false
                 ) {
-                    send(action)
+                    onAction(action)
                 }
             }
             .onChange(of: completedRestores) { _, count in
-                if count > 0, Self.closesAfterRestore(state) { send(.dismiss) }
+                if count > 0, Self.closesAfterRestore(state) { onAction(.dismiss) }
             }
             .onChange(of: state) { old, new in
                 if !new.isPresented { completedRestores = 0 }
                 let restoreCompleted = completedRestores > 0
                 for action in Self.reconcilingActions(from: old, to: new, restoreCompleted: restoreCompleted) {
-                    send(action)
+                    onAction(action)
                 }
             }
     }
@@ -521,7 +521,7 @@ struct RevenueCatPaywallModifier: ViewModifier {
     var paywallBinding: Binding<Bool> {
         Binding(
             get: { state.isPresented },
-            set: { newValue in if !newValue { send(.dismiss) } }
+            set: { newValue in if !newValue { onAction(.dismiss) } }
         )
     }
 
@@ -535,7 +535,7 @@ struct RevenueCatPaywallModifier: ViewModifier {
                 state.isCustomerCenterPresented
                 #endif
             },
-            set: { newValue in if !newValue { send(.dismissCustomerCenter) } }
+            set: { newValue in if !newValue { onAction(.dismissCustomerCenter) } }
         )
     }
 }
@@ -555,7 +555,7 @@ extension View {
     ///     )
     /// ```
     ///
-    /// See the `PaywallState` overload for convenience wiring that builds the binding.
+    /// See `revenueCatPaywallAndCustomerCenter(state:onAction:)` for composed paywall and customer-center wiring driven by `PaywallState`.
     ///
     /// - Parameters:
     ///   - isPresented: Two-way binding to the paywall's visibility flag.
@@ -563,7 +563,7 @@ extension View {
     ///   - displayCloseButton: Whether `PaywallView` shows a close button. Defaults to `true`; when `false`, iOS sheets disable interactive dismissal, and the iOS full-screen cover and macOS sheet provide no other dismissal affordance. Pass `false` only for a hard paywall the user must purchase through.
     ///     RevenueCatUI dismisses after a purchase but not after a restore; with this overload,
     ///     clearing the binding when the user becomes entitled is up to you (the
-    ///     state-driven overload does it for you).
+    ///     composed modifier does it for you).
     ///   - fonts: RevenueCatUI font provider used by the paywall.
     ///   - presentationStyle: Automatic or explicit iOS presentation style. macOS always uses a sheet.
     ///   - purchaseLogic: App-owned StoreKit 2 purchase and restore operations for `.myApp` mode. Leave `nil` when RevenueCat completes purchases.
@@ -629,7 +629,7 @@ extension View {
 
     /// Attaches paywall and customer-center presentation driven by `PaywallState`.
     ///
-    /// Convenience modifier that composes paywall and customer-center presentation in one call. Presentation changes dispatch their matching paywall actions through `send`.
+    /// Convenience modifier that composes paywall and customer-center presentation in one call. Presentation changes dispatch their matching paywall actions through `onAction`.
     ///
     /// On iOS the two presentations are mutually exclusive and the paywall wins. On macOS a customer-center request dispatches `.openManageSubscriptions` through the paywall plugin, then `.dismissCustomerCenter`; the external App Store hand-off does not compete with the paywall sheet.
     ///
@@ -642,7 +642,10 @@ extension View {
     ///
     /// ```swift
     /// ContentView()
-    ///     .revenueCatPaywall(state: store.paywall) { store.send(.paywall($0)) }
+    ///     .revenueCatPaywallAndCustomerCenter(
+    ///         state: store.paywall,
+    ///         onAction: { store.send(.paywall($0)) }
+    ///     )
     /// ```
     ///
     /// - Parameters:
@@ -653,9 +656,9 @@ extension View {
     ///   - presentationStyle: Automatic or explicit iOS presentation style. macOS always uses a sheet.
     ///   - purchaseLogic: App-owned StoreKit 2 purchase and restore operations for `.myApp` mode. Leave `nil` when RevenueCat completes purchases.
     ///   - onEvent: Optional callback for package-owned purchase, restore, cancellation, and failure values.
-    ///   - send: A closure that lifts a `PaywallAction` into your root action and dispatches it, for example `{ store.send(.paywall($0)) }`.
+    ///   - onAction: A closure that lifts a `PaywallAction` into your root action and dispatches it, for example `{ store.send(.paywall($0)) }`.
     /// - Returns: A view with paywall and customer-center presentation attached.
-    public func revenueCatPaywall(
+    public func revenueCatPaywallAndCustomerCenter(
         state: PaywallState,
         offeringIdentifier: String? = nil,
         displayCloseButton: Bool = true,
@@ -663,10 +666,10 @@ extension View {
         presentationStyle: RevenueCatPaywallPresentationStyle = .automatic,
         purchaseLogic: RevenueCatPaywallPurchaseLogic? = nil,
         onEvent: RevenueCatPaywallEventHandler? = nil,
-        send: @escaping (PaywallAction) -> Void
+        onAction: @escaping (PaywallAction) -> Void
     ) -> some View {
         modifier(
-            RevenueCatPaywallModifier(
+            RevenueCatPaywallAndCustomerCenterModifier(
                 state: state,
                 offeringIdentifier: offeringIdentifier,
                 displayCloseButton: displayCloseButton,
@@ -674,7 +677,7 @@ extension View {
                 presentationStyle: presentationStyle,
                 purchaseLogic: purchaseLogic,
                 onEvent: onEvent,
-                send: send
+                onAction: onAction
             )
         )
     }

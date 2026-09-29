@@ -1,6 +1,6 @@
 # How to Present the UI
 
-Attach the `revenueCatPaywall` and `revenueCatCustomerCenter` view modifiers from `SwiduxRevenueCatPaywallUI` to a root view, driven by `PaywallState`.
+Attach `revenueCatPaywallAndCustomerCenter` from `SwiduxRevenueCatPaywallUI` to a root view to present both surfaces from `PaywallState`, or attach either binding-driven primitive by itself.
 
 ## Overview
 
@@ -21,7 +21,7 @@ This guide assumes:
 
 ## Step 1: Attach one presentation host
 
-The simplest wiring uses the `revenueCatPaywall(state:send:)` modifier for both presentation surfaces and their actions:
+The simplest wiring uses `revenueCatPaywallAndCustomerCenter(state:onAction:)` for both presentation surfaces and their actions:
 
 ```swift
 import SwiduxRevenueCatPaywallUI
@@ -31,27 +31,27 @@ struct RootView: View {
 
     var body: some View {
         ContentView()
-            .revenueCatPaywall(state: store.paywall) { action in
-                store.send(.paywall(action))
-            }
+            .revenueCatPaywallAndCustomerCenter(
+                state: store.paywall,
+                onAction: { action in store.send(.paywall(action)) }
+            )
     }
 }
 ```
 
 The closure receives each `PaywallAction` emitted by the UI and lifts it into your root action. Attach the modifier once, to one app-wide presentation host. Do not attach it inside content created for every `WindowGroup` window or scene: the shared `PaywallState` request would make every copy present. In a multi-window app, choose one scene, such as the primary app or settings window, to own paywall presentation.
 
-Both paywall modifiers accept `displayCloseButton:` (default `true`), `fonts:`, `presentationStyle:`, and `onEvent:`. See <doc:PlatformBehavior> before turning off the close button.
+Both paywall-presenting modifiers accept `displayCloseButton:` (default `true`), `fonts:`, `presentationStyle:`, and `onEvent:`. See <doc:PlatformBehavior> before turning off the close button.
 
 Use `onEvent` for analytics or app actions that distinguish purchase completion, cancellation, failure, restore completion, and restore failure. Its values contain only package-owned types and Foundation fields:
 
 ```swift
 ContentView()
-    .revenueCatPaywall(
+    .revenueCatPaywallAndCustomerCenter(
         state: store.paywall,
-        onEvent: { event in analytics.record(event) }
-    ) { action in
-        store.send(.paywall(action))
-    }
+        onEvent: { event in analytics.record(event) },
+        onAction: { action in store.send(.paywall(action)) }
+    )
 ```
 
 ### App-owned StoreKit 2 purchases
@@ -72,12 +72,11 @@ let purchaseLogic = RevenueCatPaywallPurchaseLogic(
 )
 
 ContentView()
-    .revenueCatPaywall(
+    .revenueCatPaywallAndCustomerCenter(
         state: store.paywall,
-        purchaseLogic: purchaseLogic
-    ) { action in
-        store.send(.paywall(action))
-    }
+        purchaseLogic: purchaseLogic,
+        onAction: { action in store.send(.paywall(action)) }
+    )
 ```
 
 RevenueCatUI requires both handlers in `.myApp` mode. The modifier always supplies them, so presenting without `purchaseLogic` returns a configuration error when the user tries to purchase or restore instead of triggering RevenueCatUI's Release-build trap. The purchase closure returns the original `Product.PurchaseResult`; the package reports it to RevenueCat and then finishes a verified transaction. A pending purchase stays open with a pending message. The restore closure refreshes StoreKit first, and the package then synchronizes RevenueCat and reports whether it found an active subscription or non-subscription.
@@ -94,7 +93,7 @@ Button("Export PDF") {
 }
 ```
 
-The plugin sets `PaywallState.isPresented = true`. The `revenueCatPaywall` modifier observes the change and presents `RevenueCatUI.PaywallView` with the correct RevenueCat-owned or app-owned handlers.
+The plugin sets `PaywallState.isPresented = true`. The `revenueCatPaywallAndCustomerCenter` modifier observes the change and presents `RevenueCatUI.PaywallView` with the configured RevenueCat-owned or app-owned handlers.
 
 An explicit `offeringIdentifier:` takes precedence over the placement. A missing explicit identifier asserts in Debug, logs a warning, and falls back to the current offering. Network failures fall back without asserting.
 
@@ -110,7 +109,7 @@ if store.paywall.isPro {
 }
 ```
 
-The `revenueCatCustomerCenter` modifier presents `RevenueCatUI.CustomerCenterView` on iOS. On macOS, the convenience modifier dispatches `.openManageSubscriptions` so the paywall plugin opens the App Store subscriptions URL through its injectable URL handler, then dispatches `.dismissCustomerCenter`. RevenueCatUI does not ship a customer center on macOS; see <doc:PlatformBehavior>.
+The composed modifier presents `RevenueCatUI.CustomerCenterView` on iOS. On macOS it dispatches `.openManageSubscriptions` so the paywall plugin opens the App Store subscriptions URL through its injectable URL handler, then dispatches `.dismissCustomerCenter`. RevenueCatUI does not ship a customer center on macOS; see <doc:PlatformBehavior>.
 
 ## Step 4: Manual wiring (optional)
 
@@ -132,7 +131,7 @@ ContentView()
     )
 ```
 
-The convenience modifier `revenueCatPaywall(state:send:)` attaches this wiring and closes the paywall after a restore that leaves the user entitled. On iOS it also keeps the paywall and customer center mutually exclusive. The macOS customer center is an external App Store hand-off, so a request made while the paywall is open is handled immediately instead of being discarded.
+The convenience modifier `revenueCatPaywallAndCustomerCenter(state:onAction:)` attaches this wiring and closes the paywall after a restore that leaves the user entitled. On iOS it also keeps the paywall and customer center mutually exclusive. The macOS customer center is an external App Store hand-off, so a request made while the paywall is open is handled immediately instead of being discarded.
 
 ## Step 5: Restore from inside the paywall
 

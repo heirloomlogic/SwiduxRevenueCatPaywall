@@ -9,23 +9,23 @@ import Testing
 
 @testable import SwiduxRevenueCatPaywallUI
 
-@Suite("RevenueCatPaywallModifier")
+@Suite("RevenueCatPaywallAndCustomerCenterModifier")
 @MainActor
-struct RevenueCatPaywallModifierTests {
+struct RevenueCatPaywallAndCustomerCenterModifierTests {
     @Test("paywallBinding reads state.isPresented")
     func paywallBindingReadsState() {
         let recorder = ActionRecorder()
-        let presented = RevenueCatPaywallModifier(
+        let presented = RevenueCatPaywallAndCustomerCenterModifier(
             state: PaywallState(isPresented: true),
             offeringIdentifier: nil,
             displayCloseButton: true,
-            send: recorder.record
+            onAction: recorder.record
         )
-        let hidden = RevenueCatPaywallModifier(
+        let hidden = RevenueCatPaywallAndCustomerCenterModifier(
             state: PaywallState(isPresented: false),
             offeringIdentifier: nil,
             displayCloseButton: true,
-            send: recorder.record
+            onAction: recorder.record
         )
 
         #expect(presented.paywallBinding.wrappedValue == true)
@@ -35,17 +35,17 @@ struct RevenueCatPaywallModifierTests {
     @Test("customerCenterBinding applies the platform presentation policy")
     func customerCenterBindingUsesPlatformPolicy() {
         let recorder = ActionRecorder()
-        let bothRequested = RevenueCatPaywallModifier(
+        let bothRequested = RevenueCatPaywallAndCustomerCenterModifier(
             state: PaywallState(isPresented: true, isCustomerCenterPresented: true),
             offeringIdentifier: nil,
             displayCloseButton: true,
-            send: recorder.record
+            onAction: recorder.record
         )
-        let centerOnly = RevenueCatPaywallModifier(
+        let centerOnly = RevenueCatPaywallAndCustomerCenterModifier(
             state: PaywallState(isPresented: false, isCustomerCenterPresented: true),
             offeringIdentifier: nil,
             displayCloseButton: true,
-            send: recorder.record
+            onAction: recorder.record
         )
 
         #if os(iOS)
@@ -59,11 +59,11 @@ struct RevenueCatPaywallModifierTests {
     @Test("paywallBinding setter dispatches .dismiss only when set to false")
     func paywallBindingSetterDispatchesOnDismissal() {
         let recorder = ActionRecorder()
-        let modifier = RevenueCatPaywallModifier(
+        let modifier = RevenueCatPaywallAndCustomerCenterModifier(
             state: PaywallState(isPresented: true),
             offeringIdentifier: nil,
             displayCloseButton: true,
-            send: recorder.record
+            onAction: recorder.record
         )
 
         modifier.paywallBinding.wrappedValue = true
@@ -81,11 +81,11 @@ struct RevenueCatPaywallModifierTests {
     @Test("customerCenterBinding setter dispatches .dismissCustomerCenter only when set to false")
     func customerCenterBindingSetterDispatchesOnDismissal() {
         let recorder = ActionRecorder()
-        let modifier = RevenueCatPaywallModifier(
+        let modifier = RevenueCatPaywallAndCustomerCenterModifier(
             state: PaywallState(isCustomerCenterPresented: true),
             offeringIdentifier: nil,
             displayCloseButton: true,
-            send: recorder.record
+            onAction: recorder.record
         )
 
         modifier.customerCenterBinding.wrappedValue = true
@@ -104,11 +104,11 @@ struct RevenueCatPaywallModifierTests {
 
     @Test("The state modifier forwards requestedReason as a placement")
     func requestedReasonBecomesPlacement() {
-        let modifier = RevenueCatPaywallModifier(
+        let modifier = RevenueCatPaywallAndCustomerCenterModifier(
             state: PaywallState(isPresented: true, requestedReason: "export"),
             offeringIdentifier: nil,
             displayCloseButton: true,
-            send: { _ in }
+            onAction: { _ in }
         )
 
         #expect(modifier.placementIdentifier == "export")
@@ -116,11 +116,11 @@ struct RevenueCatPaywallModifierTests {
 
     @Test("An explicit offering identifier takes precedence over requestedReason")
     func explicitOfferingTakesPrecedence() {
-        let modifier = RevenueCatPaywallModifier(
+        let modifier = RevenueCatPaywallAndCustomerCenterModifier(
             state: PaywallState(isPresented: true, requestedReason: "export"),
             offeringIdentifier: "winback",
             displayCloseButton: true,
-            send: { _ in }
+            onAction: { _ in }
         )
 
         #expect(modifier.placementIdentifier == nil)

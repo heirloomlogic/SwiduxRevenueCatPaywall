@@ -11,7 +11,7 @@ import SwiduxRevenueCatPaywall
 
 /// App-owned StoreKit 2 operations used by the bundled paywall in observer mode.
 ///
-/// Configure RevenueCat with `purchasesAreCompletedBy: .myApp` and `storeKitVersion: .storeKit2`, then pass one value to either `revenueCatPaywall` modifier. The purchase closure calls `Product.purchase()` and returns its result unchanged. The package reports that result to RevenueCat, then finishes a verified transaction. The restore closure refreshes StoreKit's transaction state, normally by calling `AppStore.sync()`; the package synchronizes RevenueCat after it returns.
+/// Configure RevenueCat with `purchasesAreCompletedBy: .myApp` and `storeKitVersion: .storeKit2`, then pass one value to either paywall-presenting modifier. The purchase closure calls `Product.purchase()` and returns its result unchanged. The package reports that result to RevenueCat, then finishes a verified transaction. The restore closure refreshes StoreKit's transaction state, normally by calling `AppStore.sync()`; the package synchronizes RevenueCat after it returns.
 public struct RevenueCatPaywallPurchaseLogic: Sendable {
     /// App-owned StoreKit 2 purchase operation.
     public typealias Purchase = @MainActor @Sendable (Product) async throws -> Product.PurchaseResult

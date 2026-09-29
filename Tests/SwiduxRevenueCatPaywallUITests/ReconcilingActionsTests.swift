@@ -21,7 +21,11 @@ private func reconciled(
     to new: PaywallState,
     restoreCompleted: Bool = false
 ) -> [Reconciled] {
-    RevenueCatPaywallModifier.reconcilingActions(from: old, to: new, restoreCompleted: restoreCompleted).map {
+    RevenueCatPaywallAndCustomerCenterModifier.reconcilingActions(
+        from: old,
+        to: new,
+        restoreCompleted: restoreCompleted
+    ).map {
         switch $0 {
         case .dismiss: .dismiss
         case .dismissCustomerCenter: .dismissCustomerCenter
@@ -30,7 +34,7 @@ private func reconciled(
     }
 }
 
-@Suite("RevenueCatPaywallModifier.reconcilingActions")
+@Suite("RevenueCatPaywallAndCustomerCenterModifier.reconcilingActions")
 @MainActor
 struct ReconcilingActionsTests {
     @Test("Entitlement arriving after a completed restore dismisses the paywall")
@@ -118,24 +122,30 @@ struct ReconcilingActionsTests {
     #endif
 }
 
-@Suite("RevenueCatPaywallModifier.closesAfterRestore")
+@Suite("RevenueCatPaywallAndCustomerCenterModifier.closesAfterRestore")
 @MainActor
 struct ClosesAfterRestoreTests {
     @Test("A restore that leaves the user entitled closes the presented paywall")
     func entitledRestoreCloses() {
-        #expect(RevenueCatPaywallModifier.closesAfterRestore(PaywallState(isPro: true, isPresented: true)))
         #expect(
-            RevenueCatPaywallModifier.closesAfterRestore(PaywallState(hasPermanentLicense: true, isPresented: true))
+            RevenueCatPaywallAndCustomerCenterModifier.closesAfterRestore(
+                PaywallState(isPro: true, isPresented: true)
+            )
+        )
+        #expect(
+            RevenueCatPaywallAndCustomerCenterModifier.closesAfterRestore(
+                PaywallState(hasPermanentLicense: true, isPresented: true)
+            )
         )
     }
 
     @Test("A restore that found nothing keeps the paywall up")
     func emptyRestoreStays() {
-        #expect(!RevenueCatPaywallModifier.closesAfterRestore(PaywallState(isPresented: true)))
+        #expect(!RevenueCatPaywallAndCustomerCenterModifier.closesAfterRestore(PaywallState(isPresented: true)))
     }
 
     @Test("Nothing to close when the paywall isn't presented")
     func notPresentedIsQuiet() {
-        #expect(!RevenueCatPaywallModifier.closesAfterRestore(PaywallState(isPro: true)))
+        #expect(!RevenueCatPaywallAndCustomerCenterModifier.closesAfterRestore(PaywallState(isPro: true)))
     }
 }

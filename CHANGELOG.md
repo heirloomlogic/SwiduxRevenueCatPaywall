@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- `RevenueCatPaywallService.logIn(appUserID:)` and `logOut()` return package-owned identity results with verified entitlement snapshots. Identity failures use package-owned reasons and record the identity before and after the failed operation.
+- `RevenueCatPaywallService.logIn(appUserID:)` and `logOut()` return package-owned identity results with mapped entitlement snapshots. Identity failures use package-owned reasons and record the identity before and after the failed operation.
 - `RevenueCatPaywall.recordPurchase(_:)` reports an app-owned StoreKit 2 purchase without exposing RevenueCat to the app target.
 - Both `revenueCatPaywall` modifiers accept `RevenueCatPaywallPurchaseLogic` for app-owned StoreKit 2 purchase and restore operations.
 

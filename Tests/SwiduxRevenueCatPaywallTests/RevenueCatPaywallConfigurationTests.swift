@@ -209,7 +209,7 @@ private func probeFirstResult(
 struct RevenueCatPaywallIdentityTests {
     private let service = RevenueCatPaywallService(entitlementID: "pro")
 
-    @Test("Login returns the new identity and its verified entitlement snapshot")
+    @Test("Login returns the new identity and its mapped entitlement snapshot")
     func loginReturnsSnapshot() async throws {
         var identity = RevenueCatPaywallIdentity.anonymous
 
@@ -228,7 +228,7 @@ struct RevenueCatPaywallIdentityTests {
         #expect(result.snapshot == EntitlementSnapshot(isPro: true))
     }
 
-    @Test("Logout returns the anonymous identity and its verified entitlement snapshot")
+    @Test("Logout returns the anonymous identity and its mapped entitlement snapshot")
     func logoutReturnsSnapshot() async throws {
         var identity = RevenueCatPaywallIdentity.appUserID("member")
 
@@ -311,6 +311,160 @@ struct RevenueCatPaywallIdentityTests {
             #expect(error.identityAfter == .appUserID("member"))
             #expect(error.identityChanged)
         }
+    }
+
+    @Test(
+        "Overlapping service calls keep each snapshot and failure with its own identity", arguments: [false, true],
+        [false, true])
+    func overlappingServiceCalls(firstFails: Bool, secondLogsOut: Bool) async throws {
+        var identity = RevenueCatPaywallIdentity.anonymous
+        let (firstStarted, started) = AsyncStream<Void>.makeStream()
+        let (releaseFirst, release) = AsyncStream<Void>.makeStream()
+        let (secondStarted, secondAttempted) = AsyncStream<Void>.makeStream()
+        var secondEntered = false
+        let first = Task { @MainActor in
+            try await service.logIn(
+                currentIdentity: { identity },
+                operation: {
+                    identity = .appUserID("first")
+                    started.yield(())
+                    for await _ in releaseFirst { break }
+                    if firstFails {
+                        throw NSError(domain: ErrorCode.errorDomain, code: ErrorCode.networkError.rawValue)
+                    }
+                    return makeCustomerInfo(entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)])
+                }
+            )
+        }
+        for await _ in firstStarted { break }
+        let secondService = RevenueCatPaywallService(entitlementID: "pro")
+        let second = Task { @MainActor in
+            secondAttempted.yield(())
+            if secondLogsOut {
+                return try await secondService.logOut(
+                    currentIdentity: { identity }, cachedCustomerInfo: { nil },
+                    operation: {
+                        secondEntered = true
+                        identity = .anonymous
+                        return makeCustomerInfo(entitlements: [:])
+                    }
+                )
+            }
+            return try await secondService.logIn(
+                currentIdentity: { identity },
+                operation: {
+                    secondEntered = true
+                    identity = .appUserID("second")
+                    return makeCustomerInfo(entitlements: [:])
+                }
+            )
+        }
+        for await _ in secondStarted { break }
+        #expect(!secondEntered)
+        release.yield(())
+        do {
+            let result = try await first.value
+            #expect(!firstFails)
+            #expect(result.identity == .appUserID("first"))
+            #expect(result.identityChanged)
+            #expect(result.snapshot?.isPro == true)
+        } catch let error as RevenueCatPaywallIdentityError {
+            #expect(firstFails)
+            #expect(error.identityBefore == .anonymous)
+            #expect(error.identityAfter == .appUserID("first"))
+            #expect(error.identityChanged)
+        }
+        let result = try await second.value
+        #expect(result.identity == (secondLogsOut ? .anonymous : .appUserID("second")))
+        #expect(result.identityChanged)
+        #expect(result.snapshot?.isPro == false)
+    }
+
+    @Test(
+        "Namespace and service calls share serialization, including failures and anonymous guards",
+        arguments: [false, true], [false, true])
+    func legacyAndServiceCalls(legacyFirst: Bool, firstFails: Bool) async throws {
+        var identity = RevenueCatPaywallIdentity.anonymous
+        let (firstStarted, started) = AsyncStream<Void>.makeStream()
+        let (releaseFirst, release) = AsyncStream<Void>.makeStream()
+        let (secondStarted, secondAttempted) = AsyncStream<Void>.makeStream()
+        var secondEntered = false
+        let first = Task { @MainActor in
+            @MainActor func operation() async throws -> CustomerInfo {
+                started.yield(())
+                for await _ in releaseFirst { break }
+                identity = .appUserID("first")
+                if firstFails {
+                    throw NSError(domain: ErrorCode.errorDomain, code: ErrorCode.networkError.rawValue)
+                }
+                return makeCustomerInfo(entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)])
+            }
+            if legacyFirst {
+                try await RevenueCatPaywall.performLegacyIdentityOperation(
+                    .logIn, currentIdentity: { identity }, operation: { _ = try await operation() }
+                )
+            } else {
+                let result = try await service.logIn(currentIdentity: { identity }, operation: operation)
+                #expect(result.identity == .appUserID("first"))
+                #expect(result.snapshot?.isPro == true)
+            }
+        }
+        for await _ in firstStarted { break }
+        let second = Task { @MainActor in
+            secondAttempted.yield(())
+            @MainActor func operation() async throws -> CustomerInfo {
+                secondEntered = true
+                identity = .anonymous
+                return makeCustomerInfo(entitlements: [:])
+            }
+            if legacyFirst {
+                let result = try await service.logOut(
+                    currentIdentity: { identity }, cachedCustomerInfo: { nil }, operation: operation
+                )
+                #expect(result.identity == .anonymous)
+                #expect(result.identityChanged)
+                #expect(result.snapshot?.isPro == false)
+            } else {
+                try await RevenueCatPaywall.performLegacyIdentityOperation(
+                    .logOut, currentIdentity: { identity }, operation: { _ = try await operation() }
+                )
+            }
+        }
+        for await _ in secondStarted { break }
+        #expect(!secondEntered)
+        release.yield(())
+        do {
+            try await first.value
+            #expect(!firstFails)
+        } catch let error as RevenueCatPaywallIdentityError {
+            #expect(firstFails)
+            #expect(error.identityBefore == .anonymous)
+            #expect(error.identityAfter == .appUserID("first"))
+            #expect(error.identityChanged)
+        }
+        try await second.value
+        #expect(secondEntered)
+        #expect(identity == .anonymous)
+    }
+
+    @Test(
+        "Anonymous logout maps cached customer info under the configured verification policy",
+        arguments: [RevenueCat.VerificationResult.verified, .notRequested, .failed])
+    func anonymousLogoutCachedSnapshot(verification: RevenueCat.VerificationResult) async throws {
+        let result = try await service.logOut(
+            currentIdentity: { .anonymous },
+            cachedCustomerInfo: {
+                makeCustomerInfo(
+                    entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)], verification: verification)
+            },
+            operation: {
+                Issue.record("Already-anonymous logout must not call the SDK")
+                return makeCustomerInfo(entitlements: [:])
+            }
+        )
+        #expect(result.identity == .anonymous)
+        #expect(!result.identityChanged)
+        #expect(result.snapshot?.isPro == (verification == .failed ? nil : true))
     }
 
     @Test("RevenueCat identity error codes map to package reasons")

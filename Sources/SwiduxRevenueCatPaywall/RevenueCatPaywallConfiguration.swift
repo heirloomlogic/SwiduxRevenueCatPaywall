@@ -159,7 +159,7 @@ public enum RevenueCatPaywall {
 
     /// Switches the underlying purchase provider to the given user without returning mapped entitlements.
     ///
-    /// New code should use ``RevenueCatPaywallService/logIn(appUserID:)`` so the result includes the verified entitlement snapshot. This compatibility method maps provider failures to ``RevenueCatPaywallIdentityError`` but does not return entitlements.
+    /// New code should use ``RevenueCatPaywallService/logIn(appUserID:)`` so the result includes the mapped entitlement snapshot. This compatibility method maps provider failures to ``RevenueCatPaywallIdentityError`` but does not return entitlements.
     @available(
         *, deprecated,
         message: "Use RevenueCatPaywallService.logIn(appUserID:) to receive typed results and errors."
@@ -173,22 +173,16 @@ public enum RevenueCatPaywall {
                 identityAfter: nil
             )
         }
-        let identityBefore = currentIdentity
-        do {
-            _ = try await Purchases.shared.logIn(appUserID)
-        } catch {
-            throw RevenueCatPaywallIdentityError(
-                operation: .logIn,
-                reason: RevenueCatPaywallService.identityFailureReason(from: error),
-                identityBefore: identityBefore,
-                identityAfter: currentIdentity
-            )
-        }
+        try await performLegacyIdentityOperation(
+            .logIn,
+            currentIdentity: { currentIdentity },
+            operation: { _ = try await Purchases.shared.logIn(appUserID) }
+        )
     }
 
     /// Logs out without returning mapped entitlements.
     ///
-    /// New code should use ``RevenueCatPaywallService/logOut()`` so the result includes the verified entitlement snapshot. This compatibility method maps provider failures to ``RevenueCatPaywallIdentityError`` but does not return entitlements, and it retains the already-anonymous no-op.
+    /// New code should use ``RevenueCatPaywallService/logOut()`` so the result includes the mapped entitlement snapshot. This compatibility method maps provider failures to ``RevenueCatPaywallIdentityError`` but does not return entitlements, and it retains the already-anonymous no-op.
     @available(
         *, deprecated,
         message: "Use RevenueCatPaywallService.logOut() to receive typed results and errors."
@@ -202,18 +196,11 @@ public enum RevenueCatPaywall {
                 identityAfter: nil
             )
         }
-        guard !Purchases.shared.isAnonymous else { return }
-        let identityBefore = currentIdentity
-        do {
-            _ = try await Purchases.shared.logOut()
-        } catch {
-            throw RevenueCatPaywallIdentityError(
-                operation: .logOut,
-                reason: RevenueCatPaywallService.identityFailureReason(from: error),
-                identityBefore: identityBefore,
-                identityAfter: currentIdentity
-            )
-        }
+        try await performLegacyIdentityOperation(
+            .logOut,
+            currentIdentity: { currentIdentity },
+            operation: { _ = try await Purchases.shared.logOut() }
+        )
     }
 
     /// Reports the result of an app-owned StoreKit 2 purchase to RevenueCat.
@@ -236,6 +223,28 @@ public enum RevenueCatPaywall {
     }
 
     // MARK: - Internal
+
+    @MainActor
+    static func performLegacyIdentityOperation(
+        _ operationKind: RevenueCatPaywallIdentityError.Operation,
+        currentIdentity: () -> RevenueCatPaywallIdentity,
+        operation: () async throws -> Void
+    ) async throws(RevenueCatPaywallIdentityError) {
+        await RevenueCatIdentityOperationGate.acquire()
+        defer { RevenueCatIdentityOperationGate.release() }
+        let identityBefore = currentIdentity()
+        if operationKind == .logOut, identityBefore == .anonymous { return }
+        do {
+            try await operation()
+        } catch {
+            throw RevenueCatPaywallIdentityError(
+                operation: operationKind,
+                reason: RevenueCatPaywallService.identityFailureReason(from: error),
+                identityBefore: identityBefore,
+                identityAfter: currentIdentity()
+            )
+        }
+    }
 
     private static var currentIdentity: RevenueCatPaywallIdentity {
         Purchases.shared.isAnonymous ? .anonymous : .appUserID(Purchases.shared.appUserID)

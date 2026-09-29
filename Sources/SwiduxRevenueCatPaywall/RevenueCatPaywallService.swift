@@ -48,7 +48,9 @@ public struct RevenueCatPaywallService: PaywallService {
         self.permanentLicenseEntitlementID = permanentLicenseEntitlementID
     }
 
-    /// Switches RevenueCat to an application user and returns that user's verified entitlements.
+    /// Switches RevenueCat to an application user and returns that user's mapped entitlements.
+    ///
+    /// Failed signature verification is rejected. Configuring verification as `.disabled` accepts responses without a signature check.
     ///
     /// - Parameter appUserID: The stable identifier for the signed-in user.
     /// - Returns: The identity observed after login and the mapped entitlement snapshot returned by RevenueCat.
@@ -72,9 +74,11 @@ public struct RevenueCatPaywallService: PaywallService {
         )
     }
 
-    /// Switches RevenueCat to an anonymous user and returns that user's verified entitlements.
+    /// Switches RevenueCat to an anonymous user and returns that user's mapped entitlements.
     ///
-    /// When the current identity is already anonymous, this method does not call RevenueCat's logout operation. It returns a verified cached snapshot when one is available; `snapshot` is otherwise `nil`.
+    /// Failed signature verification is rejected. Configuring verification as `.disabled` accepts responses without a signature check.
+    ///
+    /// When the current identity is already anonymous, this method does not call RevenueCat's logout operation. It returns a cached snapshot accepted by the verification policy when one is available; `snapshot` is otherwise `nil`.
     ///
     /// - Returns: The identity observed after logout and the mapped entitlement snapshot returned by RevenueCat.
     /// - Throws: ``RevenueCatPaywallIdentityError``. Inspect `identityChanged` and `identityAfter` before deciding whether to keep or discard account-scoped state because RevenueCat can change identity before a later request fails.
@@ -156,6 +160,8 @@ public struct RevenueCatPaywallService: PaywallService {
         currentIdentity: () -> RevenueCatPaywallIdentity,
         operation: () async throws -> CustomerInfo
     ) async throws(RevenueCatPaywallIdentityError) -> RevenueCatPaywallIdentityResult {
+        await RevenueCatIdentityOperationGate.acquire()
+        defer { RevenueCatIdentityOperationGate.release() }
         let identityBefore = currentIdentity()
         return try await performIdentityOperation(
             .logIn,
@@ -171,14 +177,19 @@ public struct RevenueCatPaywallService: PaywallService {
         cachedCustomerInfo: () -> CustomerInfo?,
         operation: () async throws -> CustomerInfo
     ) async throws(RevenueCatPaywallIdentityError) -> RevenueCatPaywallIdentityResult {
+        await RevenueCatIdentityOperationGate.acquire()
+        defer { RevenueCatIdentityOperationGate.release() }
         let identityBefore = currentIdentity()
         guard identityBefore != .anonymous else {
-            let snapshot = cachedCustomerInfo().flatMap {
-                try? snapshot(from: $0, nonLiveSource: .cache)
+            let cachedSnapshot: EntitlementSnapshot?
+            if let info = cachedCustomerInfo() {
+                cachedSnapshot = try? snapshot(from: info, nonLiveSource: .cache)
+            } else {
+                cachedSnapshot = nil
             }
             return RevenueCatPaywallIdentityResult(
                 identity: .anonymous,
-                snapshot: snapshot,
+                snapshot: cachedSnapshot,
                 identityChanged: false
             )
         }

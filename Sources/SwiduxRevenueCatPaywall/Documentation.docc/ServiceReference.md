@@ -80,7 +80,11 @@ The plugin's `.restorePurchases` action wraps this call and dispatches `.custome
 
 #### Identity operations
 
-`logIn(appUserID:)` and `logOut()` switch the RevenueCat identity and map the returned customer info with the same entitlement identifiers and verification policy as `customerInfo()`. Their ``RevenueCatPaywallIdentityResult`` reports the identity observed after the call, whether it differs from the identity observed before the call, and the verified snapshot. An already-anonymous logout skips the SDK logout operation and may return `nil` for its snapshot when no verified customer info is cached.
+`logIn(appUserID:)` and `logOut()` switch the RevenueCat identity and map the returned customer info with the same entitlement identifiers and verification policy as `customerInfo()`. Their ``RevenueCatPaywallIdentityResult`` reports the identity observed after the call, whether it differs from the identity observed before the call, and the mapped snapshot. An already-anonymous logout skips the SDK logout operation and may return `nil` for its snapshot when no cached customer info passes the verification policy.
+
+Failed signature verification is rejected. With `entitlementVerification: .disabled`, `.notRequested` responses are accepted without a signature check.
+
+All package login/logout calls are serialized through completion, including the deprecated namespace methods. Direct RevenueCat identity calls bypass that serialization. A returned result records the completed operation; later queued operations may change the identity again.
 
 Both methods throw ``RevenueCatPaywallIdentityError`` instead of exposing RevenueCat errors. The error records the operation, a package-owned reason, and the identity observed before and after the failure. A provider operation can change identity before a later request or verification step fails, so callers must inspect `identityChanged` rather than treating every thrown error as an unchanged identity.
 

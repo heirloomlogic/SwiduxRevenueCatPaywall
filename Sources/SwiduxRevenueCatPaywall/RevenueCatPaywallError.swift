@@ -26,7 +26,7 @@ public enum RevenueCatPaywallIdentity: Equatable, Sendable {
 public struct RevenueCatPaywallIdentityResult: Equatable, Sendable {
     /// The identity active after the operation.
     public let identity: RevenueCatPaywallIdentity
-    /// The verified entitlement state returned by the provider. This is `nil` only when logout is called while already anonymous and RevenueCat has no verified customer info cached.
+    /// The mapped entitlement state returned by the provider. Failed signature verification is rejected; `.disabled` accepts responses without a signature check. This is `nil` only when logout is called while already anonymous and no cached customer info passes that policy.
     public let snapshot: EntitlementSnapshot?
     /// Whether the active identity differs from the identity observed before the operation.
     public let identityChanged: Bool

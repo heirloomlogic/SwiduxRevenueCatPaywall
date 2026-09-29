@@ -9,6 +9,8 @@ import Foundation
 public enum RevenueCatPaywallError: Error, Equatable, Sendable {
     /// RevenueCat has not been configured, so the requested operation cannot start.
     case notConfigured
+    /// The response or a configured entitlement failed signature verification, so no snapshot was produced.
+    case verificationFailed
 }
 
 extension RevenueCatPaywallError: LocalizedError {
@@ -17,6 +19,8 @@ extension RevenueCatPaywallError: LocalizedError {
         switch self {
         case .notConfigured:
             "Purchases aren't available yet. Please try again."
+        case .verificationFailed:
+            "Your purchases couldn't be verified. Please try again later."
         }
     }
 }

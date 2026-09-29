@@ -35,6 +35,21 @@ In prose:
 
 Every row above maps to a test case in `RevenueCatPaywallServiceTests` — the mapping is the package's contract.
 
+## Signature verification
+
+The rule above applies only to responses RevenueCat could vouch for. With `entitlementVerification: .informational` (the default), RevenueCat signature-verifies every entitlement response but still parses one that fails, marking it `VerificationResult.failed` and leaving the decision to the app. Apps never see `CustomerInfo`, so the service makes that decision:
+
+| Verification result | Effect |
+|---|---|
+| `.failed` — on the response, or on either configured entitlement | No snapshot. `customerInfo()` and `restorePurchases()` throw `RevenueCatPaywallError.verificationFailed`; the stream skips the response. A `.fault` is logged. |
+| `.verified` | Mapped by the rule above |
+| `.verifiedOnDevice` — computed from StoreKit 2's signed transactions | Mapped by the rule above |
+| `.notRequested` — verification is `.disabled` | Mapped by the rule above |
+
+A response that failed verification carries no trustworthy entitlement state — not even "free" — so the service reports none. To a read's caller the rejection is a failed read: wrapped in `ResilientPaywallService`, it retries and then may serve a valid cached entitlement subject to its staleness policy. This is safe only when that cache belongs to the current account; [issue #46](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/issues/46) tracks account isolation. With no valid same-account fallback, the plugin dispatches `.refreshFailed` with the error's description. Because a forged response is never returned, it is never persisted as last-known-good either. On the stream there is no error channel short of ending it, so the response is dropped and the gate keeps its current value until the next genuine update.
+
+`.notRequested` is not a way around verification: with verification on, RevenueCat reports a response missing its signature as `.failed`. To opt out of enforcement entirely, configure `entitlementVerification: .disabled`, which trusts every response.
+
 ## Why missing == inactive
 
 Treating "absent" the same as "inactive" simplifies the mental model: feature code never has to handle a third state where the gate is "indeterminate." A missing entitlement always denies access. This matches what users expect — a user who never bought the SKU sees the paywall, the same as a user whose subscription lapsed.
@@ -59,6 +74,12 @@ The mapping rule applies identically whether the snapshot comes from `customerIn
 - The stream buffers only the newest snapshot. Every yield is a complete entitlement state, so a consumer that falls behind skips straight to the latest value instead of replaying stale intermediates.
 - A subscription expiring server-side surfaces as a snapshot with `isPro = false` on the next stream yield. Your gate flips closed automatically.
 - A restore that recovers a lifetime purchase surfaces as `hasPermanentLicense = true` on the next call, even if the user's subscription was never restored.
+
+## Live and cached customer info
+
+RevenueCat does not always hit the network. A new `customerInfoStream()` first replays the last customer info RevenueCat delivered — at cold launch, usually its disk cache — and `customerInfo()` returns cached info by default, even when stale. The service tells the two apart by `CustomerInfo.requestDate`, the server time of the response: within five minutes of the device clock (RevenueCat's own foreground staleness window) the snapshot is `.live`; otherwise it is `.cacheSeed` on the stream and `.cache` from `customerInfo()` or `restorePurchases()`.
+
+The flags are mapped exactly as for live info — only the provenance differs. For responses outside the five-minute window, that provenance avoids refreshing `ResilientPaywallService` cache age from older SDK data. An SDK response within the window is labelled `.live` even if it was served from cache, and can update the plugin state and decorator cache. The `requestDate` comparison is only a provenance heuristic: a successful cached SDK response can still return entitlement flags, and this adapter does not enforce `maxCacheAge` on that response. A device clock more than five minutes off prevents `.live` labelling; access flags are unaffected.
 
 ## See Also
 

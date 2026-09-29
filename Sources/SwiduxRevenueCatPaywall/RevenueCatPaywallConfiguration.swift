@@ -42,12 +42,9 @@ public enum RevenueCatPaywall {
     /// Mirrors `RevenueCat.Configuration.EntitlementVerificationMode` so callers can opt out of
     /// signed entitlement verification without importing the RevenueCat module.
     public enum EntitlementVerification: Sendable {
-        /// No entitlement verification is performed.
+        /// No entitlement verification is performed; responses are trusted without a signature check.
         case disabled
-        /// Entitlement responses are signature-verified (the SDK default). A failed verification
-        /// is recorded on the result but does not fail parsing, so a tampered response still
-        /// grants access — ``RevenueCatPaywallService`` logs a fault for it rather than locking
-        /// users out. RevenueCat does not yet offer an enforcing mode.
+        /// Entitlement responses are signature-verified (the SDK default). RevenueCat marks failed verification without failing parsing; ``RevenueCatPaywallService`` rejects the response by throwing on reads and restores or skipping a stream value.
         case informational
 
         var rcValue: Configuration.EntitlementVerificationMode {
@@ -114,8 +111,7 @@ public enum RevenueCatPaywall {
     ///     `.info` in Release). Applied before the SDK is configured so configuration-time
     ///     diagnostics are emitted at the requested level.
     ///   - entitlementVerification: Signed entitlement verification mode. Defaults to
-    ///     `.informational` (the SDK default), which detects tampered entitlement responses
-    ///     without ever locking users out; pass `.disabled` to skip verification entirely.
+    ///     `.informational` (the SDK default); the adapter rejects failed verification. Pass `.disabled` to skip verification entirely.
     ///   - purchasesAreCompletedBy: Who finishes purchase transactions. Pass `.myApp` when your
     ///     app runs its own StoreKit purchase code and RevenueCat should only observe. Omit for
     ///     the SDK default (`.revenueCat`).
@@ -194,10 +190,8 @@ public enum RevenueCatPaywall {
     /// them. Idempotent: when the current user is already anonymous this returns without
     /// contacting RevenueCat.
     ///
-    /// - Throws: Any error propagated from `Purchases.shared.logOut()`. RevenueCat switches to
-    ///   the anonymous user before fetching its entitlements, so a thrown network error means
-    ///   the sign-out took effect but the stream has not yet delivered the anonymous user's
-    ///   entitlements — dispatch a refresh once connectivity returns.
+    /// - Important: A failed offline logout may still switch RevenueCat to an anonymous identity while the old entitlement remains displayed or cached. Applications must isolate state and cache across account transitions; see <doc:HowToImplementService> and [issue #46](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/issues/46).
+    /// - Throws: Any error propagated from `Purchases.shared.logOut()`. A thrown network error does not prove that the old identity remains active. Refresh once connectivity returns.
     /// - Precondition: ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
     ///   has been called.
     public static func logOut() async throws {

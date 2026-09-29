@@ -54,13 +54,13 @@ public init(
 
 #### `customerInfo() async throws -> EntitlementSnapshot`
 
-One-shot fetch. Calls `Purchases.shared.customerInfo()` and maps the result.
+One-shot fetch. Calls `Purchases.shared.customerInfo()` and maps the result. A response older than five minutes by `requestDate` is labelled `.cache` (see <doc:EntitlementMapping#Live-and-cached-customer-info>).
 
-Throws ``RevenueCatPaywallError/notConfigured`` if configuration has not run, or whatever the RevenueCat SDK throws (`ErrorCode.networkError`, `.offlineConnectionError`, etc.). The plugin catches the error and dispatches `.refreshFailed(message)`.
+Throws ``RevenueCatPaywallError/notConfigured`` before configuration, ``RevenueCatPaywallError/verificationFailed`` for failed signature verification, or an SDK error. A `ResilientPaywallService` can serve a valid same-account cache after a failed read; without a fallback the plugin dispatches `.refreshFailed(message)`.
 
 #### `customerInfoStream() -> AsyncStream<EntitlementSnapshot>`
 
-Long-lived stream. Wraps `Purchases.shared.customerInfoStream` and yields a new `EntitlementSnapshot` for every change RevenueCat reports — purchase, refund, family-share update, sandbox renewal.
+Long-lived stream. Wraps `Purchases.shared.customerInfoStream` and yields a new `EntitlementSnapshot` for each valid change RevenueCat reports. A failed-verification element is skipped.
 
 The stream finishes when the underlying RevenueCat stream finishes. The plugin's `.observeCustomerInfo` effect normally keeps it alive for the duration of the session; cancel by cancelling the consuming `Task`, which terminates the stream and tears down the bridge.
 
@@ -72,7 +72,7 @@ A new stream first yields the customer info RevenueCat last delivered in this pr
 
 #### `restorePurchases() async throws -> EntitlementSnapshot`
 
-Maps the result of RevenueCat's user-initiated `restorePurchases()` flow in every purchase-completion mode. Unlike `syncPurchases()`, this flow refreshes the App Store receipt and can recover a subscription missing from the device receipt. It may show an App Store sign-in prompt and applies the RevenueCat project's restore behavior when purchases belong to another app user ID. It throws ``RevenueCatPaywallError/notConfigured`` before configuration, or whatever the SDK throws on error.
+Maps the result of RevenueCat's user-initiated `restorePurchases()` flow in every purchase-completion mode. Unlike `syncPurchases()`, this flow refreshes the App Store receipt and can recover a subscription missing from the device receipt. It may show an App Store sign-in prompt and applies the RevenueCat project's restore behavior when purchases belong to another app user ID. It throws ``RevenueCatPaywallError/notConfigured`` before configuration, ``RevenueCatPaywallError/verificationFailed`` for failed signature verification, or an SDK error.
 
 The plugin's `.restorePurchases` action wraps this call and dispatches `.customerInfoUpdated` on success or `.refreshFailed` on error.
 

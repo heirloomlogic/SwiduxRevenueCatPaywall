@@ -13,5 +13,5 @@ You should receive an acknowledgement within a week. Once a fix is available, th
 ## Scope notes
 
 - The `apiKey` accepted by `RevenueCatPaywall.configure` is RevenueCat's *public* SDK key; it is not a secret. Passing a secret (`sk_`) key trips an assertion in Debug and logs a fault in Release — such a key must never ship in an app binary.
-- Entitlement trust comes from RevenueCat's server. Signed entitlement verification (`.informational`, the SDK default) detects tampered entitlement responses without locking users out: a failed verification logs a fault, but access is granted as reported. RevenueCat does not yet offer an enforcing mode.
+- Entitlement trust comes from RevenueCat's server. Signed entitlement verification (`.informational`, the SDK default) reports failures, which this adapter rejects: reads and restores throw `RevenueCatPaywallError.verificationFailed` and streams skip the invalid response. Callers that explicitly choose `.disabled` skip verification and trust the response.
 - This package contains no networking of its own; all network traffic is the RevenueCat SDK's. Vulnerabilities in the RevenueCat SDK should be reported to [RevenueCat](https://github.com/RevenueCat/purchases-ios/security).

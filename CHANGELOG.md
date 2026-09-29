@@ -27,10 +27,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - The RevenueCat requirement is now `from: "5.90.1"`. Earlier SDKs can deliver a previous user's `CustomerInfo` after an identity change, so `logIn(appUserID:)` could report a paying user as free.
-- The Swidux requirement is now `from: "1.6.0"`, the first release with `ResilientPaywallService`, which the documented production wiring uses.
+- The Swidux requirement is now `from: "1.10.0"`, the published version pinned and exercised by this package.
 - `configure(apiKey:…)`'s `logLevel:` now defaults to `nil`, leaving the SDK's own default (`.debug` in Debug builds, `.info` in Release) instead of forcing `.info`.
 - `configure(apiKey:…)` trims surrounding whitespace from the API key, and asserts in Debug and logs a fault in Release for an empty key or a secret (`sk_`) key.
-- A response whose entitlement signature fails verification logs a fault. It still grants access, as RevenueCat's `.informational` mode intends.
+- A response whose entitlement signature fails verification is rejected. Reads and restores throw `RevenueCatPaywallError.verificationFailed`; streams skip the invalid element. A valid same-account cache can serve as fallback, subject to Swidux's staleness policy.
+- Customer info whose `requestDate` is more than five minutes from the device clock is labelled `.cache` on reads and `.cacheSeed` on streams, so old RevenueCat responses do not renew Swidux's cache age.
 - An `offeringIdentifier:` already in RevenueCat's offerings cache renders immediately instead of behind a progress indicator, which now has an accessibility label.
 - `RevenueCatPaywall.configure` is main-actor isolated so the `Purchases.isConfigured` check-then-configure is atomic.
 - `offeringIdentifier:` is re-resolved when it changes, showing a progress indicator while it reloads.
@@ -38,6 +39,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `MockRevenueCatPaywallService` is checked `Sendable`, backed by a `Mutex` instead of `NSLock` plus `@unchecked Sendable`. `finish()` ends the streams open at the time of the call; streams requested afterwards are live.
 
 ### Documentation
+
+- Production cache examples use `KeychainKeyValueStore`, and account-transition guidance links to #46 for state, cache, and delayed-result isolation.
 
 - The UI guides now require one app-wide modifier attachment so a shared presentation request is not repeated by every window or scene.
 - `purchasesAreCompletedBy: .myApp` now documents the bundled StoreKit 2 purchase and restore wiring, the reporting-before-finishing order, and the limits of background purchase synchronization.

@@ -74,7 +74,7 @@ extension Store where State == AppState, Action == AppAction {
                 extractAction: { if case .paywall(let a) = $0 { return a }; return nil },
                 service: ResilientPaywallService(
                     base: RevenueCatPaywallService(entitlementID: "pro"),
-                    store: UserDefaultsKeyValueStore()
+                    store: KeychainKeyValueStore(service: "com.example.myapp")
                 )
             )
         )
@@ -89,6 +89,8 @@ extension Store where State == AppState, Action == AppAction {
 ```
 
 `ResilientPaywallService` (from SwiduxPaywall) persists the last entitlement snapshot a successful read delivered. Without it, a slow or failing network at cold launch leaves `PaywallState` at its free default and gates paying users out of their features until the first successful read; with it, the last-known-good state holds until live data arrives, and the server stays authoritative — a genuine lapse is honoured on the next successful read. Wrap the RevenueCat service in it for production.
+
+Back the cache with `KeychainKeyValueStore`, as shown, rather than `UserDefaultsKeyValueStore`. The cache vouches for a paid entitlement while RevenueCat is unreachable, and a `UserDefaults` plist is user-editable and restorable from a doctored backup; the Keychain uses OS-protected storage instead of a user-editable plist. See Swidux's [Security Posture](https://heirloomlogic.github.io/Swidux/documentation/swidux/securityposture) for what the cache does and does not defend against.
 
 Start the entitlement stream on the root view so the gate reflects RevenueCat's state from launch:
 

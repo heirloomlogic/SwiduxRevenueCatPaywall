@@ -14,9 +14,8 @@ let package = Package(
         .library(name: "SwiduxRevenueCatPaywallUI", targets: ["SwiduxRevenueCatPaywallUI"]),
     ],
     dependencies: [
-        // 1.6.0 introduced `ResilientPaywallService`, which the documented production wiring
-        // wraps this package's service in.
-        .package(url: "https://github.com/HeirloomLogic/Swidux", from: "1.6.0"),
+        // 1.10.0 is the published Swidux version pinned and exercised by this package.
+        .package(url: "https://github.com/HeirloomLogic/Swidux", from: "1.10.0"),
         // 5.90.1 stopped the SDK from delivering a previous user's CustomerInfo after an identity
         // change (RevenueCat/purchases-ios#7758). Below it, `RevenueCatPaywall.logIn` can race a
         // stale anonymous fetch and report a paying user as free.
@@ -42,6 +41,7 @@ let package = Package(
             name: "SwiduxRevenueCatPaywallTests",
             dependencies: [
                 "SwiduxRevenueCatPaywall",
+                .product(name: "Swidux", package: "Swidux"),
                 .product(name: "SwiduxPaywall", package: "Swidux"),
                 .product(name: "RevenueCat", package: "purchases-ios-spm"),
             ]

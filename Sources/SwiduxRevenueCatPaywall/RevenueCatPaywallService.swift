@@ -20,13 +20,16 @@ private let logger = Logger(
 /// `hasPermanentLicense`. Forwards `Purchases.shared.customerInfoStream` so the paywall plugin
 /// sees real-time entitlement changes.
 ///
-/// A response whose entitlement signature fails verification still maps normally — RevenueCat's
-/// `.informational` mode never locks users out — but logs a fault, so tampering surfaces in
-/// Console and sysdiagnoses.
+/// A response whose entitlement signature fails verification is rejected: reads and restores
+/// throw ``RevenueCatPaywallError/verificationFailed`` and the stream skips that response.
+/// A `ResilientPaywallService` can then use its valid same-account cache as for a failed network
+/// read. Cached RevenueCat responses older than five minutes retain access but use `.cache` or
+/// `.cacheSeed` instead of `.live`, so they cannot renew the decorator's cache age.
 ///
 /// - Important: Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before using the service. Construction is safe before configuration, but the service does not configure RevenueCat itself.
 public struct RevenueCatPaywallService: PaywallService {
     private static let didLogConfigurationFault = Mutex(false)
+    static let liveResponseWindow: TimeInterval = 5 * 60
 
     let entitlementID: String
     let permanentLicenseEntitlementID: String?
@@ -51,18 +54,19 @@ public struct RevenueCatPaywallService: PaywallService {
     /// entitlement identifiers.
     ///
     /// - Returns: An `EntitlementSnapshot` reflecting the configured entitlement IDs.
-    /// - Throws: ``RevenueCatPaywallError/notConfigured`` when RevenueCat has not been configured, or any error propagated from `Purchases.shared.customerInfo()`.
+    /// - Throws: ``RevenueCatPaywallError/notConfigured`` before configuration, ``RevenueCatPaywallError/verificationFailed`` for a failed signature, or an SDK error.
     public func customerInfo() async throws -> EntitlementSnapshot {
         try Self.requireConfiguration()
         let info = try await Purchases.shared.customerInfo()
-        return snapshot(from: info)
+        return try snapshot(from: info, nonLiveSource: .cache)
     }
 
     /// Returns a long-lived stream of entitlement snapshots derived from
     /// `Purchases.shared.customerInfoStream`.
     ///
     /// Yields a new `EntitlementSnapshot` every time RevenueCat reports a change to the user's
-    /// customer info — purchase, refund, family-share update, sandbox renewal. The stream
+    /// customer info — purchase, refund, family-share update, sandbox renewal. A failed-verification
+    /// response is skipped. The stream
     /// finishes when the underlying RevenueCat stream finishes; the paywall plugin's
     /// `.observeCustomerInfo` effect normally keeps it alive for the duration of the session.
     ///
@@ -88,11 +92,11 @@ public struct RevenueCatPaywallService: PaywallService {
     /// Calls RevenueCat's user-initiated `restorePurchases()` flow, which refreshes the App Store receipt before posting its transactions. This is also the correct path when the app owns purchases: `syncPurchases()` is for background migration and cannot recover a subscription that is absent from the device receipt.
     ///
     /// - Returns: An `EntitlementSnapshot` reflecting any entitlements restored to the account.
-    /// - Throws: ``RevenueCatPaywallError/notConfigured`` when RevenueCat has not been configured, or any error propagated from the underlying SDK call.
+    /// - Throws: ``RevenueCatPaywallError/notConfigured`` before configuration, ``RevenueCatPaywallError/verificationFailed`` for a failed signature, or an SDK error.
     public func restorePurchases() async throws -> EntitlementSnapshot {
         try Self.requireConfiguration()
         let info = try await Purchases.shared.restorePurchases()
-        return snapshot(from: info)
+        return try snapshot(from: info, nonLiveSource: .cache)
     }
 
     // MARK: - Internal
@@ -124,11 +128,14 @@ public struct RevenueCatPaywallService: PaywallService {
         )
     }
 
-    func snapshot(from info: CustomerInfo) -> EntitlementSnapshot {
-        Self.makeSnapshot(
+    func snapshot(
+        from info: CustomerInfo, nonLiveSource: EntitlementSnapshot.Source
+    ) throws(RevenueCatPaywallError) -> EntitlementSnapshot {
+        try Self.makeSnapshot(
             from: info,
             entitlementID: entitlementID,
-            permanentLicenseEntitlementID: permanentLicenseEntitlementID
+            permanentLicenseEntitlementID: permanentLicenseEntitlementID,
+            nonLiveSource: nonLiveSource
         )
     }
 
@@ -145,13 +152,15 @@ public struct RevenueCatPaywallService: PaywallService {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
                 for await info in upstream {
-                    continuation.yield(
-                        makeSnapshot(
+                    guard
+                        let snapshot = try? makeSnapshot(
                             from: info,
                             entitlementID: entitlementID,
-                            permanentLicenseEntitlementID: permanentLicenseEntitlementID
+                            permanentLicenseEntitlementID: permanentLicenseEntitlementID,
+                            nonLiveSource: .cacheSeed
                         )
-                    )
+                    else { continue }
+                    continuation.yield(snapshot)
                 }
                 continuation.finish()
             }
@@ -162,23 +171,25 @@ public struct RevenueCatPaywallService: PaywallService {
     static func makeSnapshot(
         from info: CustomerInfo,
         entitlementID: String,
-        permanentLicenseEntitlementID: String?
-    ) -> EntitlementSnapshot {
-        if info.entitlements.verification == .failed {
-            // Deliberately public: the IDs are app configuration, not user data, and the fault
-            // exists to be found in a sysdiagnose.
+        permanentLicenseEntitlementID: String?,
+        nonLiveSource: EntitlementSnapshot.Source
+    ) throws(RevenueCatPaywallError) -> EntitlementSnapshot {
+        let pro = info.entitlements[entitlementID]
+        let permanentLicense = permanentLicenseEntitlementID.flatMap { info.entitlements[$0] }
+        let verifications = [info.entitlements.verification, pro?.verification, permanentLicense?.verification]
+        guard !verifications.contains(.failed) else {
             logger.fault(
                 """
-                RevenueCat entitlement signature verification failed for '\(entitlementID, privacy: .public)'; \
-                the response may have been tampered with. Access is granted as reported.
+                RevenueCat entitlement signature verification failed; the response is rejected.
                 """
             )
+            throw .verificationFailed
         }
+        let isFresh = abs(info.requestDate.timeIntervalSinceNow) <= liveResponseWindow
         return EntitlementSnapshot(
-            isPro: info.entitlements[entitlementID]?.isActive == true,
-            hasPermanentLicense: permanentLicenseEntitlementID.flatMap {
-                info.entitlements[$0]?.isActive
-            } == true
+            isPro: pro?.isActive == true,
+            hasPermanentLicense: permanentLicense?.isActive == true,
+            source: isFresh ? .live : nonLiveSource
         )
     }
 }

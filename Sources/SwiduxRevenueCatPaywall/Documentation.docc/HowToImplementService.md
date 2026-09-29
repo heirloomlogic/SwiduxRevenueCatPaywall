@@ -22,7 +22,7 @@ Add both Swift packages to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/HeirloomLogic/Swidux", from: "1.6.0"),
+    .package(url: "https://github.com/HeirloomLogic/Swidux", from: "1.10.0"),
     .package(url: "https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall", from: "1.0.0"),
 ],
 ```
@@ -67,7 +67,9 @@ struct MyApp: App {
 }
 ```
 
-If users sign in after launch, switch the purchase provider to them with `RevenueCatPaywall.logIn(appUserID:)` and back with `RevenueCatPaywall.logOut()` — like `configure`, these wrappers keep the RevenueCat import out of your app target. The entitlement stream delivers the new user's entitlements automatically. `logOut()` returns immediately when the current user is already anonymous; if it throws a network error, the sign-out has still taken effect, so dispatch `.refreshCustomerInfo` once connectivity returns.
+If users sign in after launch, switch the purchase provider with `RevenueCatPaywall.logIn(appUserID:)` and `RevenueCatPaywall.logOut()`. The stream delivers new customer info when RevenueCat obtains it; an offline transition may produce no update. `logOut()` returns immediately for an already anonymous user. A thrown network error does not prove that the old identity remains active, so refresh once connectivity returns.
+
+> Warning: This adapter does not reset `PaywallState` or isolate the decorator cache and delayed stream/read results across account changes. A valid old-account cache must never be used as a new account's fallback. The host app must prevent old access from appearing during a transition; see [account isolation issue #46](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/issues/46) for the unfinished state, cache, and stream contract. Removing `.lastKnownEntitlement` alone does not reset displayed state or stop delayed results. The merged `ResilientPaywallService.clearCache()` is not yet in a published Swidux release and is not used here.
 
 > Important: Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before dispatching paywall work. Constructing `RevenueCatPaywallService` earlier is safe, but reads and restores throw ``RevenueCatPaywallError/notConfigured`` and the entitlement stream finishes immediately until configuration runs.
 
@@ -99,9 +101,11 @@ import SwiduxRevenueCatPaywall
 
 let service = ResilientPaywallService(
     base: RevenueCatPaywallService(entitlementID: "pro"),
-    store: UserDefaultsKeyValueStore()
+    store: KeychainKeyValueStore(service: "com.example.myapp")
 )
 ```
+
+Back this cache with the Keychain as shown; a `UserDefaults` plist is user-editable and can be restored from a doctored backup. Account isolation during sign-out and sign-in remains the host application's responsibility (see [#46](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/issues/46)).
 
 `ResilientPaywallService` (from SwiduxPaywall) persists the last entitlement snapshot a successful read delivered, so a slow or failing network at cold launch never gates a paying user as free — the last-known-good state holds until live data arrives, and a genuine lapse is honoured on the next successful read. The bare `RevenueCatPaywallService` works too, but for production the resilient wrapper is the right default.
 
@@ -128,7 +132,7 @@ extension Store where State == AppState, Action == AppAction {
                 extractAction: { if case .paywall(let a) = $0 { return a }; return nil },
                 service: ResilientPaywallService(
                     base: RevenueCatPaywallService(entitlementID: "pro"),
-                    store: UserDefaultsKeyValueStore()
+                    store: KeychainKeyValueStore(service: "com.example.myapp")
                 )
             )
         )
@@ -205,7 +209,7 @@ The plugin calls `RevenueCatPaywallService.restorePurchases()`, which forwards t
 
 ## Step 9: Handle errors
 
-Before RevenueCat is configured, reads and restores throw ``RevenueCatPaywallError/notConfigured``. Configured calls can throw errors from `Purchases.shared`, including `ErrorCode.networkError` and `.offlineConnectionError`. The plugin catches either kind and dispatches `.refreshFailed(message)`. Read `store.paywall.error` from your paywall view to surface a retry affordance:
+Before RevenueCat is configured, reads and restores throw ``RevenueCatPaywallError/notConfigured``. A failed signature throws ``RevenueCatPaywallError/verificationFailed``; configured calls can also throw SDK errors such as `ErrorCode.networkError`. The plugin handles failed reads with `.refreshFailed(message)` when no valid cache fallback exists. Read `store.paywall.error` from your paywall view to surface a retry affordance:
 
 ```swift
 if let error = store.paywall.error {

@@ -50,7 +50,7 @@ plugins.register(
         extractAction: { if case .paywall(let a) = $0 { return a }; return nil },
         service: ResilientPaywallService(
             base: RevenueCatPaywallService(entitlementID: "pro"),
-            store: UserDefaultsKeyValueStore()
+            store: KeychainKeyValueStore(service: "com.example.myapp")
         )
     )
 )
@@ -60,7 +60,7 @@ ContentView()
     .revenueCatPaywall(state: store.paywall) { store.send(.paywall($0)) }
 ```
 
-Attach the modifier once, to one app-wide presentation host. In a multi-window app, choose one scene to own it instead of placing it in content instantiated for every `WindowGroup` window. Gate features by reading `store.paywall.isGateSatisfied`. Trigger the paywall with `store.send(.paywall(.request(reason: "...")))`. See the [Getting Started](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/gettingstarted) guide for the full walk-through.
+Back the persisted entitlement cache with `KeychainKeyValueStore`; a user-editable `UserDefaults` cache can grant access offline. Attach the modifier once, to one app-wide presentation host. In a multi-window app, choose one scene to own it instead of placing it in content instantiated for every `WindowGroup` window. Gate features by reading `store.paywall.isGateSatisfied`. Trigger the paywall with `store.send(.paywall(.request(reason: "...")))`. See the [Getting Started](https://heirloomlogic.github.io/SwiduxRevenueCatPaywall/documentation/swiduxrevenuecatpaywall/gettingstarted) guide for the full walk-through.
 
 ## Documentation
 

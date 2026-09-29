@@ -38,36 +38,41 @@ struct ViewSmokeTests {
         )
     }
 
-    @Test("revenueCatPaywall(state:send:) composes onto a view")
-    func revenueCatPaywallConvenienceComposes() {
-        _ = EmptyView().revenueCatPaywall(state: PaywallState()) { _ in }
+    @Test("revenueCatPaywallAndCustomerCenter(state:onAction:) composes onto a view")
+    func revenueCatPaywallAndCustomerCenterComposes() {
+        _ = EmptyView().revenueCatPaywallAndCustomerCenter(state: PaywallState(), onAction: { _ in })
     }
 
-    @Test("revenueCatPaywall accepts displayCloseButton on both overloads")
-    func revenueCatPaywallDisplayCloseButtonComposes() {
+    @Test("The paywall APIs accept displayCloseButton")
+    func paywallAPIsAcceptDisplayCloseButton() {
         var flag = false
         _ = EmptyView().revenueCatPaywall(
             isPresented: Binding(get: { flag }, set: { flag = $0 }),
             displayCloseButton: false
         )
-        _ = EmptyView().revenueCatPaywall(state: PaywallState(), displayCloseButton: false) { _ in }
+        _ = EmptyView().revenueCatPaywallAndCustomerCenter(
+            state: PaywallState(),
+            displayCloseButton: false,
+            onAction: { _ in }
+        )
     }
 
-    @Test("revenueCatPaywall accepts offeringIdentifier on both overloads")
-    func revenueCatPaywallOfferingIdentifierComposes() {
+    @Test("The paywall APIs accept offeringIdentifier")
+    func paywallAPIsAcceptOfferingIdentifier() {
         var flag = false
         _ = EmptyView().revenueCatPaywall(
             isPresented: Binding(get: { flag }, set: { flag = $0 }),
             offeringIdentifier: "winback"
         )
-        _ = EmptyView().revenueCatPaywall(
+        _ = EmptyView().revenueCatPaywallAndCustomerCenter(
             state: PaywallState(),
-            offeringIdentifier: "winback"
-        ) { _ in }
+            offeringIdentifier: "winback",
+            onAction: { _ in }
+        )
     }
 
-    @Test("revenueCatPaywall accepts observer-mode purchase logic on both overloads")
-    func revenueCatPaywallObserverModeLogicComposes() {
+    @Test("The paywall APIs accept observer-mode purchase logic")
+    func paywallAPIsAcceptObserverModeLogic() {
         let logic = RevenueCatPaywallPurchaseLogic(
             purchase: { _ in .pending },
             restore: {}
@@ -77,14 +82,15 @@ struct ViewSmokeTests {
             isPresented: Binding(get: { flag }, set: { flag = $0 }),
             purchaseLogic: logic
         )
-        _ = EmptyView().revenueCatPaywall(
+        _ = EmptyView().revenueCatPaywallAndCustomerCenter(
             state: PaywallState(),
-            purchaseLogic: logic
-        ) { _ in }
+            purchaseLogic: logic,
+            onAction: { _ in }
+        )
     }
 
-    @Test("revenueCatPaywall accepts outcome, font, and presentation options on both overloads")
-    func revenueCatPaywallOptionsCompose() {
+    @Test("The paywall APIs accept outcome, font, and presentation options")
+    func paywallAPIsAcceptOptions() {
         let fonts = DefaultPaywallFontProvider()
         var flag = false
         _ = EmptyView().revenueCatPaywall(
@@ -93,12 +99,12 @@ struct ViewSmokeTests {
             presentationStyle: .sheet,
             onEvent: { _ in }
         )
-        _ = EmptyView().revenueCatPaywall(
+        _ = EmptyView().revenueCatPaywallAndCustomerCenter(
             state: PaywallState(),
             fonts: fonts,
             presentationStyle: .automatic,
             onEvent: { _ in },
-            send: { _ in }
+            onAction: { _ in }
         )
     }
 

@@ -13,7 +13,7 @@ This package assumes you already use Swidux. If you don't, work through Swidux's
 **Xcode:** File > Add Package Dependencies, paste `https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall`. Add the products you need:
 
 - `SwiduxRevenueCatPaywall` — the `PaywallService` implementation and mock.
-- `SwiduxRevenueCatPaywallUI` — adds the `revenueCatPaywall` and `revenueCatCustomerCenter` view modifiers (depends on RevenueCatUI).
+- `SwiduxRevenueCatPaywallUI` — adds the composed `revenueCatPaywallAndCustomerCenter` modifier and the `revenueCatPaywall` and `revenueCatCustomerCenter` primitives (depends on RevenueCatUI).
 
 **Package.swift:**
 
@@ -112,7 +112,7 @@ Gate features by reading `store.paywall.isGateSatisfied`. See <doc:HowToImplemen
 
 ## Attach the UI
 
-Attach the `revenueCatPaywall` modifier to a root view, driven by paywall state:
+Attach the composed `revenueCatPaywallAndCustomerCenter` modifier to a root view, driven by paywall state:
 
 ```swift
 import SwiduxRevenueCatPaywallUI
@@ -122,9 +122,10 @@ struct RootView: View {
 
     var body: some View {
         ContentView()
-            .revenueCatPaywall(state: store.paywall) { action in
-                store.send(.paywall(action))
-            }
+            .revenueCatPaywallAndCustomerCenter(
+                state: store.paywall,
+                onAction: { action in store.send(.paywall(action)) }
+            )
     }
 }
 ```

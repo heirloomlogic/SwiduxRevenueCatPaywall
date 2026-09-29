@@ -20,9 +20,9 @@ struct HostedMacPresentationTests {
         let recorder = HostedActionRecorder()
         let rootView = Color.clear
             .frame(width: 320, height: 240)
-            .revenueCatPaywall(
+            .revenueCatPaywallAndCustomerCenter(
                 state: PaywallState(isPresented: true, isCustomerCenterPresented: true),
-                send: recorder.record
+                onAction: recorder.record
             )
         let controller = NSHostingController(rootView: rootView)
         let window = NSWindow(
@@ -59,9 +59,9 @@ struct HostedIOSPresentationTests {
         let recorder = HostedActionRecorder()
         let controller = UIHostingController(
             rootView: Color.clear
-                .revenueCatPaywall(
+                .revenueCatPaywallAndCustomerCenter(
                     state: PaywallState(isPresented: true, isCustomerCenterPresented: true),
-                    send: recorder.record
+                    onAction: recorder.record
                 )
         )
         let window = UIWindow(frame: UIScreen.main.bounds)

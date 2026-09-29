@@ -1,6 +1,6 @@
 # UI Components Reference
 
-API reference for the `revenueCatPaywall` and `revenueCatCustomerCenter` view modifiers — the SwiftUI surface of `SwiduxRevenueCatPaywallUI`.
+API reference for the paywall, customer-center, and composed view modifiers in `SwiduxRevenueCatPaywallUI`.
 
 ## Overview
 
@@ -81,11 +81,11 @@ Attaches the customer center as a platform-appropriate sheet.
 - `isPresented` — Two-way binding to the customer center's visibility flag.
 - `onDismiss` — Optional callback fired after dismissal (or, on macOS, after the App Store URL is opened).
 
-### `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:fonts:presentationStyle:purchaseLogic:onEvent:send:)`
+### `revenueCatPaywallAndCustomerCenter(state:offeringIdentifier:displayCloseButton:fonts:presentationStyle:purchaseLogic:onEvent:onAction:)`
 
 ```swift
 extension View {
-    public func revenueCatPaywall(
+    public func revenueCatPaywallAndCustomerCenter(
         state: PaywallState,
         offeringIdentifier: String? = nil,
         displayCloseButton: Bool = true,
@@ -93,12 +93,12 @@ extension View {
         presentationStyle: RevenueCatPaywallPresentationStyle = .automatic,
         purchaseLogic: RevenueCatPaywallPurchaseLogic? = nil,
         onEvent: RevenueCatPaywallEventHandler? = nil,
-        send: @escaping (PaywallAction) -> Void
+        onAction: @escaping (PaywallAction) -> Void
     ) -> some View
 }
 ```
 
-Convenience modifier that attaches both primitive presentation surfaces and dispatches the matching actions through `send`.
+Convenience modifier that attaches both primitive presentation surfaces and dispatches the matching actions through `onAction`.
 
 On iOS the two presentations are mutually exclusive and the paywall wins. On macOS a customer-center request dispatches `.openManageSubscriptions` through the paywall plugin, then `.dismissCustomerCenter`; the external App Store hand-off remains available while the paywall sheet is open. After a restore inside the paywall, the modifier also dispatches `.dismiss` once `state.isGateSatisfied` is `true`, because RevenueCatUI does not dismiss after a restore. Attach the modifier once to one app-wide presentation host. See *Platform Behavior* in the `SwiduxRevenueCatPaywall` documentation.
 
@@ -111,7 +111,7 @@ On iOS the two presentations are mutually exclusive and the paywall wins. On mac
 - `presentationStyle` — Automatic or explicit iOS presentation style; macOS always uses a sheet.
 - `purchaseLogic` — App-owned StoreKit 2 purchase and restore operations for `purchasesAreCompletedBy: .myApp`. Leave `nil` when RevenueCat completes purchases.
 - `onEvent` — Optional package-owned outcome callback; see the primitive modifier above.
-- `send` — A closure that lifts a `PaywallAction` into your root action and dispatches it through the store. Typically `{ store.send(.paywall($0)) }`.
+- `onAction` — A closure that lifts a `PaywallAction` into your root action and dispatches it through the store. Typically `{ store.send(.paywall($0)) }`.
 
 #### Manual wiring
 

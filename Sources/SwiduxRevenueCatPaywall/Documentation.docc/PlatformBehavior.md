@@ -1,6 +1,6 @@
 # Platform Behavior
 
-How the `revenueCatPaywall` and `revenueCatCustomerCenter` modifiers choose presentation, and which controls remain fixed.
+How the paywall and customer-center modifiers choose presentation, and which controls remain fixed.
 
 ## Overview
 
@@ -31,7 +31,7 @@ With the composed modifier, the macOS branch dispatches `.openManageSubscription
 
 ## Presentation coordination
 
-On iOS, the composed `revenueCatPaywall(state:offeringIdentifier:displayCloseButton:fonts:presentationStyle:purchaseLogic:onEvent:send:)` modifier never shows the paywall and customer center at once. The paywall wins: while `PaywallState.isPresented` is `true`, the customer-center binding reads `false`, and an initial or later state with both flags set dispatches `.dismissCustomerCenter`.
+On iOS, the composed `revenueCatPaywallAndCustomerCenter(state:offeringIdentifier:displayCloseButton:fonts:presentationStyle:purchaseLogic:onEvent:onAction:)` modifier never shows the paywall and customer center at once. The paywall wins: while `PaywallState.isPresented` is `true`, the customer-center binding reads `false`, and an initial or later state with both flags set dispatches `.dismissCustomerCenter`.
 
 On macOS, subscription management is an external App Store hand-off rather than a second modal surface. The customer-center binding remains active while the paywall sheet is open, so the composed modifier dispatches `.openManageSubscriptions` and then `.dismissCustomerCenter` without losing the request.
 

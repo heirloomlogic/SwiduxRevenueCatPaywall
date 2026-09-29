@@ -433,7 +433,7 @@ struct MapStreamTests {
 
 // MARK: - Helpers
 
-private func makeCustomerInfo(
+func makeCustomerInfo(
     entitlements: [String: EntitlementInfo],
     verification: VerificationResult = .notRequested,
     requestDate: Date = Date()
@@ -446,7 +446,7 @@ private func makeCustomerInfo(
     )
 }
 
-private func makeEntitlement(
+func makeEntitlement(
     id: String,
     isActive: Bool,
     verification: VerificationResult = .notRequested

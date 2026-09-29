@@ -67,7 +67,22 @@ struct MyApp: App {
 }
 ```
 
-If users sign in after launch, switch the purchase provider with `RevenueCatPaywall.logIn(appUserID:)` and `RevenueCatPaywall.logOut()`. The stream delivers new customer info when RevenueCat obtains it; an offline transition may produce no update. `logOut()` returns immediately for an already anonymous user. A thrown network error does not prove that the old identity remains active, so refresh once connectivity returns.
+If users sign in after launch, switch the purchase identity through the base `RevenueCatPaywallService` you construct in Step 3. Successful calls return the identity observed when the operation completes and the mapped entitlement snapshot from the operation:
+
+```swift
+let login = try await revenueCatService.logIn(appUserID: account.id)
+let logout = try await revenueCatService.logOut()
+```
+
+The same verification policy applies to reads and identity results: failed verification is rejected, while `entitlementVerification: .disabled` accepts `.notRequested` responses without a signature check. A returned snapshot does not itself prove signature verification ran.
+
+`logOut()` remains a no-op when RevenueCat is already anonymous. Its result contains a cached snapshot accepted by the verification policy when one is available; otherwise `snapshot` is `nil`. The older `RevenueCatPaywall.logIn(appUserID:)` and `RevenueCatPaywall.logOut()` entry points remain for source compatibility and now map failures to ``RevenueCatPaywallIdentityError``, but they are deprecated because they do not return the mapped snapshot.
+
+Catch ``RevenueCatPaywallIdentityError`` and inspect `identityChanged`, `identityBefore`, and `identityAfter`. RevenueCat can change its local identity before a later network or verification step fails, so a thrown error does not mean the old identity is still active. The error's `reason` maps provider errors into package-owned cases such as `networkUnavailable` and `invalidAppUserID`; application targets do not need to import RevenueCat.
+
+The entitlement stream is an observation channel, not confirmation that an identity operation finished. It can repeat the operation's customer info later, and an offline operation that throws after changing identity may produce no stream value. Use the operation result or error as the immediate transition record, then refresh after connectivity returns.
+
+The service identity methods are main-actor isolated. SwiftUI tasks can call them directly; background callers must hop to `MainActor`. All package login/logout entry points share a queue, including calls on different service instances and the deprecated namespace methods. Each operation holds its turn through result mapping and error sampling. Calls made directly through RevenueCat bypass this queue, so use the package methods for identity changes. Results record an operation’s completion; a later queued operation can change the identity again.
 
 > Warning: This adapter does not reset `PaywallState` or isolate the decorator cache and delayed stream/read results across account changes. A valid old-account cache must never be used as a new account's fallback. The host app must prevent old access from appearing during a transition; see [account isolation issue #46](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/issues/46) for the unfinished state, cache, and stream contract. Removing `.lastKnownEntitlement` alone does not reset displayed state or stop delayed results. The merged `ResilientPaywallService.clearCache()` is not yet in a published Swidux release and is not used here.
 
@@ -99,8 +114,9 @@ Create the service with the entitlement identifier you set up in the RevenueCat 
 import SwiduxPaywall
 import SwiduxRevenueCatPaywall
 
+let revenueCatService = RevenueCatPaywallService(entitlementID: "pro")
 let service = ResilientPaywallService(
-    base: RevenueCatPaywallService(entitlementID: "pro"),
+    base: revenueCatService,
     store: KeychainKeyValueStore(service: "com.example.myapp")
 )
 ```
@@ -209,7 +225,7 @@ The plugin calls `RevenueCatPaywallService.restorePurchases()`, which forwards t
 
 ## Step 9: Handle errors
 
-Before RevenueCat is configured, reads and restores throw ``RevenueCatPaywallError/notConfigured``. A failed signature throws ``RevenueCatPaywallError/verificationFailed``; configured calls can also throw SDK errors such as `ErrorCode.networkError`. The plugin handles failed reads with `.refreshFailed(message)` when no valid cache fallback exists. Read `store.paywall.error` from your paywall view to surface a retry affordance:
+Before RevenueCat is configured, reads and restores throw ``RevenueCatPaywallError/notConfigured``. Identity operations throw ``RevenueCatPaywallIdentityError`` with `reason == .notConfigured`. A failed signature throws ``RevenueCatPaywallError/verificationFailed`` during an entitlement read and maps to `RevenueCatPaywallIdentityError.Reason.verificationFailed` during an identity operation. Other identity failures are also mapped to package-owned reasons; ordinary reads and restores can still propagate SDK errors. The plugin handles failed reads with `.refreshFailed(message)` when no valid cache fallback exists. Read `store.paywall.error` from your paywall view to surface a retry affordance:
 
 ```swift
 if let error = store.paywall.error {

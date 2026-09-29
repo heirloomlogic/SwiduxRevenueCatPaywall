@@ -10,13 +10,7 @@ import StoreKit
 
 /// Namespace for package-level configuration of the RevenueCat-backed paywall.
 ///
-/// Downstream apps call
-/// ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
-/// once at launch in place of `Purchases.configure(withAPIKey:)`, which removes the need to
-/// `import RevenueCat` from the app target. The RevenueCat SDK becomes an implementation detail
-/// of this package. Apps with authentication switch users through
-/// ``RevenueCatPaywall/logIn(appUserID:)`` and ``RevenueCatPaywall/logOut()`` for the same
-/// reason.
+/// Downstream apps call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` once at launch in place of `Purchases.configure(withAPIKey:)`, which removes the need to `import RevenueCat` from the app target. The RevenueCat SDK becomes an implementation detail of this package. Apps with authentication switch users through the configured ``RevenueCatPaywallService`` so they also receive mapped entitlements.
 public enum RevenueCatPaywall {
     private static let logger = Logger(
         subsystem: "com.heirloomlogic.SwiduxRevenueCatPaywall",
@@ -163,44 +157,50 @@ public enum RevenueCatPaywall {
         )
     }
 
-    /// Switches the underlying purchase provider to the given user.
+    /// Switches the underlying purchase provider to the given user without returning mapped entitlements.
     ///
-    /// Call after sign-in, in place of `Purchases.shared.logIn(_:)`, so the app target never
-    /// imports RevenueCat. The entitlement stream
-    /// (``RevenueCatPaywallService/customerInfoStream()``) delivers the new user's entitlements;
-    /// no manual refresh is needed.
-    ///
-    /// - Parameter appUserID: Stable identifier for the signed-in user.
-    /// - Throws: Any error propagated from `Purchases.shared.logIn(_:)`.
-    /// - Precondition: ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
-    ///   has been called.
-    public static func logIn(appUserID: String) async throws {
-        precondition(
-            Purchases.isConfigured,
-            "Call RevenueCatPaywall.configure(apiKey:) before RevenueCatPaywall.logIn(appUserID:)."
+    /// New code should use ``RevenueCatPaywallService/logIn(appUserID:)`` so the result includes the mapped entitlement snapshot. This compatibility method maps provider failures to ``RevenueCatPaywallIdentityError`` but does not return entitlements.
+    @available(
+        *, deprecated,
+        message: "Use RevenueCatPaywallService.logIn(appUserID:) to receive typed results and errors."
+    )
+    public static func logIn(appUserID: String) async throws(RevenueCatPaywallIdentityError) {
+        guard Purchases.isConfigured else {
+            throw RevenueCatPaywallIdentityError(
+                operation: .logIn,
+                reason: .notConfigured,
+                identityBefore: nil,
+                identityAfter: nil
+            )
+        }
+        try await performLegacyIdentityOperation(
+            .logIn,
+            currentIdentity: { currentIdentity },
+            operation: { _ = try await Purchases.shared.logIn(appUserID) }
         )
-        _ = try await Purchases.shared.logIn(appUserID)
     }
 
-    /// Logs the current user out of the underlying purchase provider, resetting to a new
-    /// anonymous user.
+    /// Logs out without returning mapped entitlements.
     ///
-    /// Call after sign-out, in place of `Purchases.shared.logOut()`. The entitlement stream
-    /// delivers the anonymous user's (typically empty) entitlements once RevenueCat fetches
-    /// them. Idempotent: when the current user is already anonymous this returns without
-    /// contacting RevenueCat.
-    ///
-    /// - Important: A failed offline logout may still switch RevenueCat to an anonymous identity while the old entitlement remains displayed or cached. Applications must isolate state and cache across account transitions; see <doc:HowToImplementService> and [issue #46](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/issues/46).
-    /// - Throws: Any error propagated from `Purchases.shared.logOut()`. A thrown network error does not prove that the old identity remains active. Refresh once connectivity returns.
-    /// - Precondition: ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
-    ///   has been called.
-    public static func logOut() async throws {
-        precondition(
-            Purchases.isConfigured,
-            "Call RevenueCatPaywall.configure(apiKey:) before RevenueCatPaywall.logOut()."
+    /// New code should use ``RevenueCatPaywallService/logOut()`` so the result includes the mapped entitlement snapshot. This compatibility method maps provider failures to ``RevenueCatPaywallIdentityError`` but does not return entitlements, and it retains the already-anonymous no-op.
+    @available(
+        *, deprecated,
+        message: "Use RevenueCatPaywallService.logOut() to receive typed results and errors."
+    )
+    public static func logOut() async throws(RevenueCatPaywallIdentityError) {
+        guard Purchases.isConfigured else {
+            throw RevenueCatPaywallIdentityError(
+                operation: .logOut,
+                reason: .notConfigured,
+                identityBefore: nil,
+                identityAfter: nil
+            )
+        }
+        try await performLegacyIdentityOperation(
+            .logOut,
+            currentIdentity: { currentIdentity },
+            operation: { _ = try await Purchases.shared.logOut() }
         )
-        guard !Purchases.shared.isAnonymous else { return }
-        _ = try await Purchases.shared.logOut()
     }
 
     /// Reports the result of an app-owned StoreKit 2 purchase to RevenueCat.
@@ -223,6 +223,32 @@ public enum RevenueCatPaywall {
     }
 
     // MARK: - Internal
+
+    @MainActor
+    static func performLegacyIdentityOperation(
+        _ operationKind: RevenueCatPaywallIdentityError.Operation,
+        currentIdentity: () -> RevenueCatPaywallIdentity,
+        operation: () async throws -> Void
+    ) async throws(RevenueCatPaywallIdentityError) {
+        await RevenueCatIdentityOperationGate.acquire()
+        defer { RevenueCatIdentityOperationGate.release() }
+        let identityBefore = currentIdentity()
+        if operationKind == .logOut, identityBefore == .anonymous { return }
+        do {
+            try await operation()
+        } catch {
+            throw RevenueCatPaywallIdentityError(
+                operation: operationKind,
+                reason: RevenueCatPaywallService.identityFailureReason(from: error),
+                identityBefore: identityBefore,
+                identityAfter: currentIdentity()
+            )
+        }
+    }
+
+    private static var currentIdentity: RevenueCatPaywallIdentity {
+        Purchases.shared.isAnonymous ? .anonymous : .appUserID(Purchases.shared.appUserID)
+    }
 
     /// A misconfigured API key that ``configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)``
     /// flags. RevenueCat itself accepts both silently and fails later, or not at all.

@@ -228,6 +228,9 @@ struct ResolvedOfferingPaywallView: View {
         identifier: String,
         assertMissing: (String) -> Void
     ) -> Resolution {
+        // RevenueCat's continuation can resume after SwiftUI cancels a superseded task. Keep the
+        // old request from asserting or logging after its result is no longer relevant.
+        guard !Task.isCancelled else { return .currentOffering }
         switch fetched {
         case .success(let offering?):
             return .resolved(offering)
@@ -312,7 +315,9 @@ struct RevenueCatPaywallSheetModifier: ViewModifier {
             onRestoreCompleted: onRestoreCompleted,
             onRequestDismiss: { isPresented = false }
         )
-        #if os(macOS)
+        #if os(iOS)
+        .interactiveDismissDisabled(!displayCloseButton)
+        #else
         .frame(minWidth: 400, minHeight: 600)
         #endif
     }
@@ -554,13 +559,8 @@ extension View {
     ///
     /// - Parameters:
     ///   - isPresented: Two-way binding to the paywall's visibility flag.
-    ///   - offeringIdentifier: Identifier of the RevenueCat offering to present — for example a
-    ///     win-back or regional offering. Pass `nil` (the default) for the dashboard's current
-    ///     offering. An unknown identifier or a failed fetch falls back to the current offering
-    ///     with a logged warning.
-    ///   - displayCloseButton: Whether `PaywallView` shows a close button. Defaults to `true`;
-    ///     neither the iOS `fullScreenCover` nor the macOS `sheet` offers any other dismissal
-    ///     affordance, so pass `false` only for a hard paywall the user must purchase through.
+    ///   - offeringIdentifier: Identifier of the RevenueCat offering to present, for example a win-back or regional offering. Pass `nil` (the default) for the dashboard's current offering. An unknown identifier asserts in Debug, logs a warning, and falls back to the current offering. A failed fetch falls back with a warning but does not assert.
+    ///   - displayCloseButton: Whether `PaywallView` shows a close button. Defaults to `true`; when `false`, iOS sheets disable interactive dismissal, and the iOS full-screen cover and macOS sheet provide no other dismissal affordance. Pass `false` only for a hard paywall the user must purchase through.
     ///     RevenueCatUI dismisses after a purchase but not after a restore; with this overload,
     ///     clearing the binding when the user becomes entitled is up to you (the
     ///     state-driven overload does it for you).
@@ -647,10 +647,8 @@ extension View {
     ///
     /// - Parameters:
     ///   - state: The paywall slice from your store, typically `store.paywall`.
-    ///   - offeringIdentifier: Explicit RevenueCat offering identifier. When omitted, `state.requestedReason` is used as a RevenueCat placement and falls back to the current offering. An unknown explicit identifier asserts in Debug, logs a warning, and falls back.
-    ///   - displayCloseButton: Whether `PaywallView` shows a close button. Defaults to `true`;
-    ///     neither the iOS `fullScreenCover` nor the macOS `sheet` offers any other dismissal
-    ///     affordance, so pass `false` only for a hard paywall the user must purchase through.
+    ///   - offeringIdentifier: Explicit RevenueCat offering identifier. When omitted, `state.requestedReason` is used as a RevenueCat placement. RevenueCat may return the dashboard's placement fallback offering, which can differ from the current offering; the package uses the current offering when no placement fallback is configured. An unknown explicit identifier asserts in Debug, logs a warning, and falls back.
+    ///   - displayCloseButton: Whether `PaywallView` shows a close button. Defaults to `true`; when `false`, iOS sheets disable interactive dismissal, and the iOS full-screen cover and macOS sheet provide no other dismissal affordance. Pass `false` only for a hard paywall the user must purchase through.
     ///   - fonts: RevenueCatUI font provider used by the paywall.
     ///   - presentationStyle: Automatic or explicit iOS presentation style. macOS always uses a sheet.
     ///   - purchaseLogic: App-owned StoreKit 2 purchase and restore operations for `.myApp` mode. Leave `nil` when RevenueCat completes purchases.

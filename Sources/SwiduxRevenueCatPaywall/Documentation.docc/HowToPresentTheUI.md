@@ -86,7 +86,7 @@ The bundled observer-mode UI accepts StoreKit 2 products. A `.myApp` configurati
 
 ## Step 2: Trigger the paywall from a feature
 
-Dispatch `.request(reason:)` with a short identifier describing why you're asking. When `offeringIdentifier:` is omitted, the composed modifier passes this value to RevenueCat as a placement identifier. RevenueCat targeting can select an offering for that placement; otherwise the current offering is used:
+Dispatch `.request(reason:)` with a short identifier describing why you're asking. When `offeringIdentifier:` is omitted, the composed modifier passes this value to RevenueCat as a placement identifier. RevenueCat targeting can select an offering for that placement. For an unknown placement, RevenueCat may return the dashboard's placement fallback offering, which can differ from the current offering; the package uses the current offering when RevenueCat returns no placement fallback:
 
 ```swift
 Button("Export PDF") {

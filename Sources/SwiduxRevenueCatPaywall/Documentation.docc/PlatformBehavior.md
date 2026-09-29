@@ -16,7 +16,7 @@ This article explains the reasoning behind those choices and what is fixed versu
 | **iOS, regular width** | `sheet` | iPad and other regular-width hosts follow RevenueCatUI's sheet default. |
 | **macOS** | `sheet` with `frame(minWidth: 400, minHeight: 600)` | Mac sheets do not expand to fill the parent window. Without an explicit minimum size the paywall would render too small to legibly show plan options. The 400×600 minimum is roughly the size RevenueCatUI's templates assume. |
 
-The `.automatic` style uses the table above. iOS callers can force `.sheet` or `.fullScreen`; macOS always uses a sheet. The modifiers show `PaywallView`'s close button by default. On macOS, Escape clears the presentation binding only when the close button is enabled. Pass `displayCloseButton: false` only for a hard paywall the user must purchase through.
+The `.automatic` style uses the table above. iOS callers can force `.sheet` or `.fullScreen`; macOS always uses a sheet. The modifiers show `PaywallView`'s close button by default. When the close button is disabled, iOS sheets also disable interactive dismissal. On macOS, Escape clears the presentation binding only when the close button is enabled. Pass `displayCloseButton: false` only for a hard paywall the user must purchase through.
 
 The minimum frame is hard-coded; it is not exposed as a parameter. If your paywall layout needs more room on macOS, use `RevenueCatUI.PaywallView` directly inside a custom `sheet` modifier.
 
@@ -57,7 +57,7 @@ The configurable surface lives in `RevenueCatUI` and on the paywall plugin:
 - **Outcomes** — `onEvent:` reports package-owned purchase, restore, cancellation, and failure values from inside the presentation boundary.
 - **Presentation triggering** — driven by the plugin via `PaywallState.isPresented` and `isCustomerCenterPresented`. Your code chooses *when* to set them via `.request(reason:)` and `.presentCustomerCenter` actions.
 - **Dismiss behavior** — dismiss actions are dispatched by the presentation bindings themselves (`.dismiss` for the paywall, `.dismissCustomerCenter` for the customer center). The primitive modifiers' `onDismiss` callbacks are purely additive — use them for analytics hooks or cleanup, not for dispatch.
-- **Offering selection** — `offeringIdentifier:` presents a specific offering and takes precedence over placement targeting. The composed modifier otherwise passes `PaywallState.requestedReason` as a RevenueCat placement. Missing placements and fetch failures fall back to the current offering; an unknown explicit identifier also asserts in Debug and logs a warning.
+- **Offering selection** — `offeringIdentifier:` presents a specific offering and takes precedence over placement targeting. The composed modifier otherwise passes `PaywallState.requestedReason` as a RevenueCat placement. For an unknown placement, RevenueCat may return the dashboard's placement fallback offering, which can differ from the current offering; the package uses the current offering when RevenueCat returns no placement fallback or the fetch fails. An unknown explicit identifier also asserts in Debug and logs a warning.
 
 ## See Also
 

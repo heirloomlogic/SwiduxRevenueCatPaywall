@@ -51,7 +51,7 @@ Pass a real two-way binding; SwiftUI sets it to `false` on user dismissal. Build
 
 - `isPresented` — Two-way binding to the paywall's visibility flag.
 - `offeringIdentifier` — Identifier of the RevenueCat offering to present, for a win-back or regional offer. Defaults to `nil`, which presents the dashboard's current offering. An unknown identifier asserts in Debug and falls back to the current offering with a logged warning; a fetch failure also falls back without asserting.
-- `displayCloseButton` — Whether `PaywallView` shows a close button. Defaults to `true`. On macOS, Escape dismisses only when this is `true`.
+- `displayCloseButton` — Whether `PaywallView` shows a close button. Defaults to `true`. When `false`, iOS sheets disable interactive dismissal. On macOS, Escape dismisses only when this is `true`.
 - `fonts` — RevenueCatUI font provider used by every resolved paywall.
 - `presentationStyle` — `.automatic` adapts to iOS width and uses a sheet on macOS. iOS callers can force `.sheet` or `.fullScreen`.
 - `purchaseLogic` — App-owned StoreKit 2 purchase and restore operations for `purchasesAreCompletedBy: .myApp`. Leave `nil` when RevenueCat completes purchases.
@@ -105,7 +105,7 @@ On iOS the two presentations are mutually exclusive and the paywall wins. On mac
 #### Parameters
 
 - `state` — The paywall slice from your store, typically `store.paywall`.
-- `offeringIdentifier` — Identifier of the RevenueCat offering to present. When it is `nil`, `state.requestedReason` is used as a RevenueCat placement identifier; a placement with no targeted offering falls back to the dashboard's current offering. An explicit identifier takes precedence.
+- `offeringIdentifier` — Identifier of the RevenueCat offering to present. When it is `nil`, `state.requestedReason` is used as a RevenueCat placement identifier. For an unknown placement, RevenueCat may return the dashboard's placement fallback offering, which can differ from the current offering; the package uses the current offering when RevenueCat returns no placement fallback. An explicit identifier takes precedence.
 - `displayCloseButton` — Whether `PaywallView` shows a close button. Defaults to `true`; see the primitive modifier above.
 - `fonts` — RevenueCatUI font provider used by the paywall.
 - `presentationStyle` — Automatic or explicit iOS presentation style; macOS always uses a sheet.

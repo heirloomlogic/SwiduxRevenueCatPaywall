@@ -41,15 +41,18 @@ struct ResolvedOfferingResolutionTests {
 
     @Test("A missing offering falls back to the current offering")
     func missingOfferingFallsBack() {
+        var assertedIdentifier: String?
         let resolution = ResolvedOfferingPaywallView.resolution(
             from: .success(nil),
-            identifier: "missing"
+            identifier: "missing",
+            assertMissing: { assertedIdentifier = $0 }
         )
 
         guard case .currentOffering = resolution else {
             Issue.record("Expected .currentOffering, got \(resolution)")
             return
         }
+        #expect(assertedIdentifier == "missing")
     }
 
     @Test("A failed fetch falls back to the current offering")

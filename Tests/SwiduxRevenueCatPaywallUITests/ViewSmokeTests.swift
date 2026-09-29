@@ -4,6 +4,7 @@
 //
 
 import RevenueCat
+import RevenueCatUI
 import SwiduxPaywall
 import SwiduxRevenueCatPaywall
 import SwiftUI
@@ -81,6 +82,42 @@ struct ViewSmokeTests {
             purchaseLogic: logic
         ) { _ in }
     }
+
+    @Test("revenueCatPaywall accepts outcome, font, and presentation options on both overloads")
+    func revenueCatPaywallOptionsCompose() {
+        let fonts = DefaultPaywallFontProvider()
+        var flag = false
+        _ = EmptyView().revenueCatPaywall(
+            isPresented: Binding(get: { flag }, set: { flag = $0 }),
+            fonts: fonts,
+            presentationStyle: .sheet,
+            onEvent: { _ in }
+        )
+        _ = EmptyView().revenueCatPaywall(
+            state: PaywallState(),
+            fonts: fonts,
+            presentationStyle: .automatic,
+            onEvent: { _ in },
+            send: { _ in }
+        )
+    }
+
+    #if os(macOS)
+    @Test("Escape dismisses only when the close button is available")
+    func escapeRespectsHardPaywall() {
+        var dismissals = 0
+        ResolvedOfferingPaywallView.handleExitCommand(
+            displayCloseButton: true,
+            onRequestDismiss: { dismissals += 1 }
+        )
+        ResolvedOfferingPaywallView.handleExitCommand(
+            displayCloseButton: false,
+            onRequestDismiss: { dismissals += 1 }
+        )
+
+        #expect(dismissals == 1)
+    }
+    #endif
 
     #if os(iOS)
     @Test("Observer-mode paywall presents in a hosted hierarchy")

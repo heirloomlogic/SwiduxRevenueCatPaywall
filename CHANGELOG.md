@@ -8,12 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- The bundled paywall reports package-owned purchase, restore, cancellation, and failure events; accepts RevenueCatUI font providers and adaptive or explicit iOS presentation styles; uses `PaywallState.requestedReason` for RevenueCat placement targeting; and lets Escape close a dismissible macOS paywall. Dashboard exit offers remain unavailable because RevenueCatUI's exit-offer presenter always adds a close button, which cannot preserve the package's hard-paywall option.
 - `RevenueCatPaywallService.logIn(appUserID:)` and `logOut()` return package-owned identity results with mapped entitlement snapshots. Identity failures use package-owned reasons and record the identity before and after the failed operation.
 - `RevenueCatPaywall.recordPurchase(_:)` reports an app-owned StoreKit 2 purchase without exposing RevenueCat to the app target.
 - Both `revenueCatPaywall` modifiers accept `RevenueCatPaywallPurchaseLogic` for app-owned StoreKit 2 purchase and restore operations.
 
 ### Fixed
 
+- An unknown explicit paywall offering identifier now asserts in Debug before falling back to the current offering; network failures keep the fallback without asserting.
 - The composed macOS customer-center flow now dispatches the paywall plugin's injectable `.openManageSubscriptions` action before clearing its request, including when the flag is already set on first appearance or the paywall is open. iOS keeps the two modal presentations exclusive and reconciles an initial two-flag state.
 - `RevenueCatPaywallService` can be constructed before RevenueCat configuration. Reads and restores now throw `RevenueCatPaywallError.notConfigured`; an early entitlement stream finishes, and a later `customerInfoStream()` call can retry after configuration.
 - The composed `revenueCatPaywall(state:send:)` modifier closes the paywall after a restore that leaves the user entitled, once RevenueCatUI reports the restore complete. RevenueCatUI dismisses after a purchase but not after a restore, so a restoring user stayed on the paywall — with no way out behind a hard paywall (`displayCloseButton: false`).

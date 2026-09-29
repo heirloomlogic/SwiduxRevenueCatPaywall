@@ -13,7 +13,7 @@ RevenueCat adapter for Swidux's `PaywallPlugin`. Implements `PaywallService` aga
 Two products ship together:
 
 - **`SwiduxRevenueCatPaywall`** — `RevenueCatPaywallService` (the live `PaywallService` conformer) and `MockRevenueCatPaywallService` (a controllable preview / test conformer).
-- **`SwiduxRevenueCatPaywallUI`** — `revenueCatPaywall(isPresented:)` and `revenueCatCustomerCenter(isPresented:)`, drop-in SwiftUI view modifiers that wrap RevenueCatUI with platform-aware presentation, plus a `revenueCatPaywall(state:send:)` convenience that composes both.
+- **`SwiduxRevenueCatPaywallUI`** — `revenueCatPaywall(isPresented:)` and `revenueCatCustomerCenter(isPresented:)`, drop-in SwiftUI view modifiers with adaptive presentation and package-owned outcome events, plus a `revenueCatPaywall(state:send:)` convenience that composes both.
 
 The flow:
 

@@ -230,8 +230,9 @@ public enum RevenueCatPaywall {
         currentIdentity: () -> RevenueCatPaywallIdentity,
         operation: () async throws -> Void
     ) async throws(RevenueCatPaywallIdentityError) {
-        await RevenueCatIdentityOperationGate.acquire()
-        defer { RevenueCatIdentityOperationGate.release() }
+        let gate = RevenueCatIdentityOperationGate.shared
+        await gate.acquire()
+        defer { gate.release() }
         let identityBefore = currentIdentity()
         if operationKind == .logOut, identityBefore == .anonymous { return }
         do {

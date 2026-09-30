@@ -33,6 +33,7 @@ public struct RevenueCatPaywallService: PaywallService {
 
     let entitlementID: String
     let permanentLicenseEntitlementID: String?
+    let identityGate: RevenueCatIdentityOperationGate
 
     /// Creates a service that maps RevenueCat entitlements to `EntitlementSnapshot`.
     ///
@@ -44,8 +45,23 @@ public struct RevenueCatPaywallService: PaywallService {
     ///     `nil` if the app has no separate lifetime SKU.
     ///
     public init(entitlementID: String, permanentLicenseEntitlementID: String? = nil) {
+        self.init(
+            entitlementID: entitlementID,
+            permanentLicenseEntitlementID: permanentLicenseEntitlementID,
+            identityGate: .shared
+        )
+    }
+
+    /// Tests pass a private gate so identity operations in parallel suites cannot interfere. Every
+    /// production path, including the deprecated namespace methods, uses `.shared`.
+    init(
+        entitlementID: String,
+        permanentLicenseEntitlementID: String?,
+        identityGate: RevenueCatIdentityOperationGate
+    ) {
         self.entitlementID = entitlementID
         self.permanentLicenseEntitlementID = permanentLicenseEntitlementID
+        self.identityGate = identityGate
     }
 
     /// Switches RevenueCat to an application user and returns that user's mapped entitlements.
@@ -107,12 +123,17 @@ public struct RevenueCatPaywallService: PaywallService {
     /// Calls `Purchases.shared.customerInfo()` and maps the result against the configured
     /// entitlement identifiers.
     ///
+    /// A read that starts while a package login or logout is running waits for it to finish. A result that arrives after another identity operation began, or after the RevenueCat app user ID changed, is discarded.
+    ///
     /// - Returns: An `EntitlementSnapshot` reflecting the configured entitlement IDs.
-    /// - Throws: ``RevenueCatPaywallError/notConfigured`` before configuration, ``RevenueCatPaywallError/verificationFailed`` for a failed signature, or an SDK error.
+    /// - Throws: ``RevenueCatPaywallError/notConfigured`` before configuration, ``RevenueCatPaywallError/identityChanged`` when the identity changed during the read, ``RevenueCatPaywallError/verificationFailed`` for a failed signature, or an SDK error.
     public func customerInfo() async throws -> EntitlementSnapshot {
         try Self.requireConfiguration()
-        let info = try await Purchases.shared.customerInfo()
-        return try snapshot(from: info, nonLiveSource: .cache)
+        let purchases = Purchases.shared
+        return try await fencedSnapshot(
+            appUserID: { purchases.appUserID },
+            fetch: { try await purchases.customerInfo() }
+        )
     }
 
     /// Returns a long-lived stream of entitlement snapshots derived from
@@ -125,17 +146,25 @@ public struct RevenueCatPaywallService: PaywallService {
     /// `.observeCustomerInfo` effect normally keeps it alive for the duration of the session.
     ///
     /// A new stream first yields the customer info RevenueCat last delivered in this process, if
-    /// any. RevenueCat may not have delivered one yet — on a relaunch with a fresh cache it skips
-    /// the launch fetch — and then the stream stays silent until the next change. Dispatch
-    /// `.refreshCustomerInfo` alongside `.observeCustomerInfo` to seed the state.
+    /// any, and only when it belongs to the current RevenueCat customer. RevenueCat may not have
+    /// delivered one yet — on a relaunch with a fresh cache it skips the launch fetch — or may
+    /// still hold the previous user's, as after a logout that failed offline. The stream then
+    /// stays silent until the next change. Dispatch `.refreshCustomerInfo` alongside
+    /// `.observeCustomerInfo` to seed the state.
     ///
     /// If RevenueCat has not been configured, the stream finishes immediately. Configure RevenueCat, then call this method again to start a live stream.
+    ///
+    /// The stream stays open across package logins and logouts but never forwards a value that could belong to the previous identity. When a package identity operation begins, or the RevenueCat app user ID changes, the stream discards its RevenueCat subscription with anything still buffered in it. Once no identity operation is running, it subscribes again. RevenueCat starts every subscription by replaying the customer info it last sent, which an identity change does not replace, so the stream forwards that first value only when its `originalAppUserId` matches the current app user ID or the `originalAppUserId` of the customer info RevenueCat caches for that ID.
     public func customerInfoStream() -> AsyncStream<EntitlementSnapshot> {
         guard Self.isConfigured else {
             return AsyncStream { continuation in continuation.finish() }
         }
+        let purchases = Purchases.shared
         return Self.mapStream(
-            Purchases.shared.customerInfoStream,
+            subscribe: { purchases.customerInfoStream },
+            appUserID: { purchases.appUserID },
+            cachedCustomerInfo: { purchases.cachedCustomerInfo },
+            identityGate: identityGate,
             entitlementID: entitlementID,
             permanentLicenseEntitlementID: permanentLicenseEntitlementID
         )
@@ -145,12 +174,17 @@ public struct RevenueCatPaywallService: PaywallService {
     ///
     /// Calls RevenueCat's user-initiated `restorePurchases()` flow, which refreshes the App Store receipt before posting its transactions. This is also the correct path when the app owns purchases: `syncPurchases()` is for background migration and cannot recover a subscription that is absent from the device receipt.
     ///
+    /// A restore follows the same identity rule as ``customerInfo()``: it waits for a running package login or logout, and its result is discarded if the identity changes before it returns.
+    ///
     /// - Returns: An `EntitlementSnapshot` reflecting any entitlements restored to the account.
-    /// - Throws: ``RevenueCatPaywallError/notConfigured`` before configuration, ``RevenueCatPaywallError/verificationFailed`` for a failed signature, or an SDK error.
+    /// - Throws: ``RevenueCatPaywallError/notConfigured`` before configuration, ``RevenueCatPaywallError/identityChanged`` when the identity changed during the restore, ``RevenueCatPaywallError/verificationFailed`` for a failed signature, or an SDK error.
     public func restorePurchases() async throws -> EntitlementSnapshot {
         try Self.requireConfiguration()
-        let info = try await Purchases.shared.restorePurchases()
-        return try snapshot(from: info, nonLiveSource: .cache)
+        let purchases = Purchases.shared
+        return try await fencedSnapshot(
+            appUserID: { purchases.appUserID },
+            fetch: { try await purchases.restorePurchases() }
+        )
     }
 
     // MARK: - Internal
@@ -160,8 +194,8 @@ public struct RevenueCatPaywallService: PaywallService {
         currentIdentity: () -> RevenueCatPaywallIdentity,
         operation: () async throws -> CustomerInfo
     ) async throws(RevenueCatPaywallIdentityError) -> RevenueCatPaywallIdentityResult {
-        await RevenueCatIdentityOperationGate.acquire()
-        defer { RevenueCatIdentityOperationGate.release() }
+        await identityGate.acquire()
+        defer { identityGate.release() }
         let identityBefore = currentIdentity()
         return try await performIdentityOperation(
             .logIn,
@@ -177,8 +211,8 @@ public struct RevenueCatPaywallService: PaywallService {
         cachedCustomerInfo: () -> CustomerInfo?,
         operation: () async throws -> CustomerInfo
     ) async throws(RevenueCatPaywallIdentityError) -> RevenueCatPaywallIdentityResult {
-        await RevenueCatIdentityOperationGate.acquire()
-        defer { RevenueCatIdentityOperationGate.release() }
+        await identityGate.acquire()
+        defer { identityGate.release() }
         let identityBefore = currentIdentity()
         guard identityBefore != .anonymous else {
             let cachedSnapshot: EntitlementSnapshot?
@@ -199,6 +233,18 @@ public struct RevenueCatPaywallService: PaywallService {
             currentIdentity: currentIdentity,
             operation: operation
         )
+    }
+
+    /// Maps a read or restore, discarding a result that may belong to a different identity than
+    /// the one active when it started.
+    func fencedSnapshot(
+        appUserID: @escaping @Sendable () -> String,
+        fetch: @Sendable () async throws -> CustomerInfo
+    ) async throws -> EntitlementSnapshot {
+        let fence = await identityGate.idleFence(appUserID: appUserID)
+        let info = try await fetch()
+        guard fence.holds else { throw RevenueCatPaywallError.identityChanged }
+        return try snapshot(from: info, nonLiveSource: .cache)
     }
 
     @MainActor
@@ -294,33 +340,71 @@ public struct RevenueCatPaywallService: PaywallService {
         )
     }
 
-    /// Wraps an upstream `CustomerInfo` stream and yields a mapped `EntitlementSnapshot` for every
-    /// value the upstream produces. Cancelling the consuming task cancels the upstream iteration.
+    /// Subscribes to an upstream `CustomerInfo` stream and yields a mapped `EntitlementSnapshot`
+    /// for every value the upstream produces, resubscribing across identity changes as
+    /// ``customerInfoStream()`` describes. Cancelling the consuming task cancels the upstream
+    /// iteration.
     ///
     /// Buffers only the newest snapshot: each yield is a complete entitlement state, so a slow
     /// consumer should see the latest value rather than replay stale intermediate states.
     static func mapStream(
-        _ upstream: AsyncStream<CustomerInfo>,
+        subscribe: @escaping @Sendable () -> AsyncStream<CustomerInfo>,
+        appUserID: @escaping @Sendable () -> String,
+        cachedCustomerInfo: @escaping @Sendable () -> CustomerInfo?,
+        identityGate: RevenueCatIdentityOperationGate,
         entitlementID: String,
         permanentLicenseEntitlementID: String?
     ) -> AsyncStream<EntitlementSnapshot> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
-                for await info in upstream {
-                    guard
-                        let snapshot = try? makeSnapshot(
-                            from: info,
-                            entitlementID: entitlementID,
-                            permanentLicenseEntitlementID: permanentLicenseEntitlementID,
-                            nonLiveSource: .cacheSeed
-                        )
-                    else { continue }
-                    continuation.yield(snapshot)
+                subscriptions: while !Task.isCancelled {
+                    let fence = await identityGate.idleFence(appUserID: appUserID)
+                    var isFirstValue = true
+                    // Leaving this loop releases the upstream stream, which ends RevenueCat's
+                    // subscription and discards whatever it still buffers.
+                    for await info in subscribe() {
+                        if !fence.holds { continue subscriptions }
+                        // RevenueCat starts every subscription by replaying the customer info it
+                        // last sent, which an identity change does not replace. An offline logout
+                        // leaves the previous user's info there.
+                        if isFirstValue {
+                            isFirstValue = false
+                            guard
+                                describesCustomer(
+                                    info,
+                                    appUserID: fence.identity,
+                                    cachedCustomerInfo: cachedCustomerInfo
+                                )
+                            else { continue }
+                        }
+                        guard
+                            let snapshot = try? makeSnapshot(
+                                from: info,
+                                entitlementID: entitlementID,
+                                permanentLicenseEntitlementID: permanentLicenseEntitlementID,
+                                nonLiveSource: .cacheSeed
+                            )
+                        else { continue }
+                        continuation.yield(snapshot)
+                    }
+                    break
                 }
                 continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// Whether `info` belongs to the RevenueCat customer that `appUserID` identifies.
+    ///
+    /// `originalAppUserId` names a customer across all of its aliases, and RevenueCat caches customer info per app user ID. Info matches when its customer's original ID is `appUserID` or is the original ID of the info cached for `appUserID`. Without a cache entry, info whose original ID differs from `appUserID` does not match.
+    static func describesCustomer(
+        _ info: CustomerInfo,
+        appUserID: String,
+        cachedCustomerInfo: () -> CustomerInfo?
+    ) -> Bool {
+        info.originalAppUserId == appUserID
+            || info.originalAppUserId == cachedCustomerInfo()?.originalAppUserId
     }
 
     static func makeSnapshot(

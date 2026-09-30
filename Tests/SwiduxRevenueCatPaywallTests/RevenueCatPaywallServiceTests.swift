@@ -7,6 +7,7 @@ import Foundation
 import RevenueCat
 import Swidux
 import SwiduxPaywall
+import Synchronization
 import Testing
 
 @testable import SwiduxRevenueCatPaywall
@@ -418,16 +419,91 @@ struct MapStreamTests {
             entitlementID: "pro",
             permanentLicenseEntitlementID: nil
         )
+        let (received, receivedContinuation) = AsyncStream<Void>.makeStream()
         let consumer = Task {
-            for await _ in mapped {}
+            for await _ in mapped { receivedContinuation.yield() }
         }
 
         continuation.yield(makeCustomerInfo(entitlements: [:]))
+        // A delivered snapshot means the mapping task is iterating the upstream.
+        for await _ in received { break }
         consumer.cancel()
 
         // Completes only once the upstream's onTermination has run.
         for await _ in upstreamEnded {}
         await consumer.value
+    }
+
+    // `subscribe` creates each upstream, as `Purchases.shared.customerInfoStream` does, so a
+    // cancellation that arrives before the mapping task subscribes has no upstream to end.
+    @Test("Cancelling the consumer before the stream subscribes leaves no subscription open")
+    func cancellationBeforeSubscribing() async {
+        // While an identity operation holds the gate, the mapping task cannot subscribe.
+        let gate = RevenueCatIdentityOperationGate()
+        await gate.acquire()
+        let counter = SubscriptionCounter()
+        let (mapped, mappingEnded) = mapStream(subscribe: counter.subscribe, identityGate: gate)
+        let consumer = Task {
+            for await _ in mapped {}
+        }
+
+        consumer.cancel()
+        await consumer.value
+        #expect(counter.opened == 0)
+
+        await gate.release()
+        // Completes only once the mapping task has returned.
+        for await _ in mappingEnded {}
+        #expect(counter.opened == counter.ended, "Every subscription the task opened must end.")
+    }
+
+    /// Maps the upstreams `subscribe` creates. `taskEnded` finishes when the mapping task returns
+    /// and releases `subscribe`, which holds the stream's only reference to a release signal.
+    private func mapStream(
+        subscribe: @escaping @Sendable () -> AsyncStream<CustomerInfo>,
+        identityGate: RevenueCatIdentityOperationGate
+    ) -> (mapped: AsyncStream<EntitlementSnapshot>, taskEnded: AsyncStream<Void>) {
+        let signal = ReleaseSignal()
+        let taskEnded = signal.released
+        let mapped = RevenueCatPaywallService.mapStream(
+            subscribe: { withExtendedLifetime(signal) { subscribe() } },
+            appUserID: { "test-user" },
+            cachedCustomerInfo: { nil },
+            identityGate: identityGate,
+            entitlementID: "pro",
+            permanentLicenseEntitlementID: nil
+        )
+        return (mapped, taskEnded)
+    }
+}
+
+/// Stands in for `Purchases.shared.customerInfoStream`, which returns a new stream on every
+/// access, and counts the streams opened and the streams whose iteration ended.
+private final class SubscriptionCounter: Sendable {
+    private let counts = Mutex((opened: 0, ended: 0))
+
+    var opened: Int { counts.withLock { $0.opened } }
+    var ended: Int { counts.withLock { $0.ended } }
+
+    @Sendable func subscribe() -> AsyncStream<CustomerInfo> {
+        let (stream, continuation) = AsyncStream<CustomerInfo>.makeStream()
+        continuation.onTermination = { _ in self.counts.withLock { $0.ended += 1 } }
+        counts.withLock { $0.opened += 1 }
+        return stream
+    }
+}
+
+/// Finishes `released` when its last reference goes away.
+private final class ReleaseSignal: Sendable {
+    let released: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+
+    init() {
+        (released, continuation) = AsyncStream<Void>.makeStream()
+    }
+
+    deinit {
+        continuation.finish()
     }
 }
 
@@ -436,13 +512,14 @@ struct MapStreamTests {
 func makeCustomerInfo(
     entitlements: [String: EntitlementInfo],
     verification: VerificationResult = .notRequested,
-    requestDate: Date = Date()
+    requestDate: Date = Date(),
+    originalAppUserId: String = "test-user"
 ) -> CustomerInfo {
     CustomerInfo(
         entitlements: EntitlementInfos(entitlements: entitlements, verification: verification),
         requestDate: requestDate,
         firstSeen: Date(),
-        originalAppUserId: "test-user"
+        originalAppUserId: originalAppUserId
     )
 }
 
@@ -462,6 +539,25 @@ func makeEntitlement(
         ownershipType: .purchased,
         verification: verification
     )
+}
+
+extension RevenueCatPaywallService {
+    /// Maps one upstream stream behind a private identity gate, so mapping tests never observe
+    /// identity operations that other suites run in parallel.
+    static func mapStream(
+        _ upstream: AsyncStream<CustomerInfo>,
+        entitlementID: String,
+        permanentLicenseEntitlementID: String?
+    ) -> AsyncStream<EntitlementSnapshot> {
+        mapStream(
+            subscribe: { upstream },
+            appUserID: { "test-user" },
+            cachedCustomerInfo: { nil },
+            identityGate: RevenueCatIdentityOperationGate(),
+            entitlementID: entitlementID,
+            permanentLicenseEntitlementID: permanentLicenseEntitlementID
+        )
+    }
 }
 
 /// A base service whose reads map `info` exactly as ``RevenueCatPaywallService`` maps a live

@@ -1,0 +1,27 @@
+name: Dependency Floors
+
+on:
+  schedule:
+    - cron: "17 13 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Keep this aligned with the package's other CI jobs. A scheduled run reports
+  # when a declared floor stops compiling under the pinned toolchain.
+  DEVELOPER_DIR: /Applications/Xcode_26.5.app
+
+jobs:
+  build-dependency-floors:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve and build exact dependency floors
+        run: Scripts/verify-dependency-floors.sh

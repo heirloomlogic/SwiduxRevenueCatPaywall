@@ -2,9 +2,9 @@ name: Tests
 
 # PR-only. A `push: [main]` trigger re-ran these exact jobs against the commit the
 # PR had already tested, for a second set of macOS runner slots and no new signal.
-# The merge gate is unchanged — every PR still runs both legs before merge. What is
-# no longer covered: a direct push to `main` that bypasses a PR. Add branch
-# protection rather than restoring this trigger.
+# The merge gate is unchanged — every PR still runs both legs before merge. The
+# `main` ruleset requires `test-macos` and `test-ios`, so a direct push that
+# bypasses a PR is rejected rather than left untested. Do not restore this trigger.
 on:
   pull_request:
     branches:

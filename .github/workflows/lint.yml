@@ -1,8 +1,8 @@
 name: Lint
 
 # PR-only. See test.yml: the `push: [main]` trigger re-linted a commit the PR had
-# already linted. A direct push to `main` outside a PR is no longer linted; branch
-# protection is the fix for that, not this trigger.
+# already linted. The `main` ruleset requires `swift-format-lint`, so a direct push
+# outside a PR is rejected rather than left unlinted. Do not restore this trigger.
 on:
   pull_request:
 

@@ -36,6 +36,14 @@ jobs:
           # blast radius. Nothing here pushes.
           persist-credentials: false
 
+      - name: Cache SwiftPM build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: spm-test-macos-${{ env.DEVELOPER_DIR }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            spm-test-macos-${{ env.DEVELOPER_DIR }}-
+
       - name: Test
         run: swift test
 
@@ -51,6 +59,15 @@ jobs:
         with:
           # See test-macos: third-party SwiftPM code runs after checkout, nothing pushes.
           persist-credentials: false
+
+      # SourcePackages contains resolved package sources without restoring Xcode build products, which encode machine-specific paths and timestamps.
+      - name: Cache SwiftPM source packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build/DerivedData/SourcePackages
+          key: spm-test-ios-${{ env.DEVELOPER_DIR }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            spm-test-ios-${{ env.DEVELOPER_DIR }}-
 
       - name: Test (iOS Simulator)
         run: |

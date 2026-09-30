@@ -70,11 +70,11 @@ The stream finishes when the underlying RevenueCat stream finishes. The plugin's
 
 Before configuration, the stream logs a fault and finishes immediately. Swidux 1.9 and later clears its observation guard when the stream ends, so configure RevenueCat and dispatch `.observeCustomerInfo` again to retry.
 
-The stream stays open across package logins and logouts without forwarding a value that could belong to the previous identity. Each RevenueCat subscription starts while no identity operation is running. The first value that arrives after an identity operation began, or after the app user ID changed, is dropped together with the subscription and anything it still buffered. A new subscription starts once no identity operation is running, and it begins from the customer info RevenueCat holds for the new identity.
+The stream stays open across package logins and logouts without forwarding a value that could belong to the previous identity. Each RevenueCat subscription starts while no identity operation is running. The first value that arrives after an identity operation began, or after the app user ID changed, is dropped together with the subscription and anything it still buffered. A new subscription starts once no identity operation is running. RevenueCat begins every subscription by replaying the customer info it last sent, and an identity change does not replace that value: after a logout that failed offline it is still the previous user's. The stream forwards that first value only when its `originalAppUserId` matches the current app user ID or the `originalAppUserId` of the customer info RevenueCat caches for that ID.
 
 The stream buffers only the newest snapshot: each yield is a complete entitlement state, so a slow consumer sees the latest value rather than replaying stale intermediate states.
 
-A new stream first yields the customer info RevenueCat last delivered in this process, if any. RevenueCat may not have delivered one yet — on a relaunch with a fresh cache it skips the launch fetch — and then the stream stays silent until the next change, so dispatch `.refreshCustomerInfo` alongside `.observeCustomerInfo` to seed the state.
+A new stream first yields the customer info RevenueCat last delivered in this process, if any, and only when it belongs to the current RevenueCat customer. RevenueCat may not have delivered one yet — on a relaunch with a fresh cache it skips the launch fetch — or may still hold the previous user's. The stream then stays silent until the next change, so dispatch `.refreshCustomerInfo` alongside `.observeCustomerInfo` to seed the state.
 
 #### `restorePurchases() async throws -> EntitlementSnapshot`
 

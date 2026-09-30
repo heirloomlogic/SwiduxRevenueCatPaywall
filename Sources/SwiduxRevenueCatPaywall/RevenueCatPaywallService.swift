@@ -146,13 +146,15 @@ public struct RevenueCatPaywallService: PaywallService {
     /// `.observeCustomerInfo` effect normally keeps it alive for the duration of the session.
     ///
     /// A new stream first yields the customer info RevenueCat last delivered in this process, if
-    /// any. RevenueCat may not have delivered one yet — on a relaunch with a fresh cache it skips
-    /// the launch fetch — and then the stream stays silent until the next change. Dispatch
-    /// `.refreshCustomerInfo` alongside `.observeCustomerInfo` to seed the state.
+    /// any, and only when it belongs to the current RevenueCat customer. RevenueCat may not have
+    /// delivered one yet — on a relaunch with a fresh cache it skips the launch fetch — or may
+    /// still hold the previous user's, as after a logout that failed offline. The stream then
+    /// stays silent until the next change. Dispatch `.refreshCustomerInfo` alongside
+    /// `.observeCustomerInfo` to seed the state.
     ///
     /// If RevenueCat has not been configured, the stream finishes immediately. Configure RevenueCat, then call this method again to start a live stream.
     ///
-    /// The stream stays open across package logins and logouts but never forwards a value that could belong to the previous identity. When a package identity operation begins, or the RevenueCat app user ID changes, the stream discards its RevenueCat subscription with anything still buffered in it. Once no identity operation is running, it subscribes again, and the new subscription starts from the customer info RevenueCat holds for the new identity.
+    /// The stream stays open across package logins and logouts but never forwards a value that could belong to the previous identity. When a package identity operation begins, or the RevenueCat app user ID changes, the stream discards its RevenueCat subscription with anything still buffered in it. Once no identity operation is running, it subscribes again. RevenueCat starts every subscription by replaying the customer info it last sent, which an identity change does not replace, so the stream forwards that first value only when its `originalAppUserId` matches the current app user ID or the `originalAppUserId` of the customer info RevenueCat caches for that ID.
     public func customerInfoStream() -> AsyncStream<EntitlementSnapshot> {
         guard Self.isConfigured else {
             return AsyncStream { continuation in continuation.finish() }
@@ -161,6 +163,7 @@ public struct RevenueCatPaywallService: PaywallService {
         return Self.mapStream(
             subscribe: { purchases.customerInfoStream },
             appUserID: { purchases.appUserID },
+            cachedCustomerInfo: { purchases.cachedCustomerInfo },
             identityGate: identityGate,
             entitlementID: entitlementID,
             permanentLicenseEntitlementID: permanentLicenseEntitlementID
@@ -347,6 +350,7 @@ public struct RevenueCatPaywallService: PaywallService {
     static func mapStream(
         subscribe: @escaping @Sendable () -> AsyncStream<CustomerInfo>,
         appUserID: @escaping @Sendable () -> String,
+        cachedCustomerInfo: @escaping @Sendable () -> CustomerInfo?,
         identityGate: RevenueCatIdentityOperationGate,
         entitlementID: String,
         permanentLicenseEntitlementID: String?
@@ -355,10 +359,24 @@ public struct RevenueCatPaywallService: PaywallService {
             let task = Task {
                 subscriptions: while !Task.isCancelled {
                     let fence = await identityGate.idleFence(appUserID: appUserID)
+                    var isFirstValue = true
                     // Leaving this loop releases the upstream stream, which ends RevenueCat's
                     // subscription and discards whatever it still buffers.
                     for await info in subscribe() {
                         if !fence.holds { continue subscriptions }
+                        // RevenueCat starts every subscription by replaying the customer info it
+                        // last sent, which an identity change does not replace. An offline logout
+                        // leaves the previous user's info there.
+                        if isFirstValue {
+                            isFirstValue = false
+                            guard
+                                describesCustomer(
+                                    info,
+                                    appUserID: fence.identity,
+                                    cachedCustomerInfo: cachedCustomerInfo
+                                )
+                            else { continue }
+                        }
                         guard
                             let snapshot = try? makeSnapshot(
                                 from: info,
@@ -375,6 +393,18 @@ public struct RevenueCatPaywallService: PaywallService {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// Whether `info` belongs to the RevenueCat customer that `appUserID` identifies.
+    ///
+    /// `originalAppUserId` names a customer across all of its aliases, and RevenueCat caches customer info per app user ID. Info matches when its customer's original ID is `appUserID` or is the original ID of the info cached for `appUserID`. Without a cache entry, info whose original ID differs from `appUserID` does not match.
+    static func describesCustomer(
+        _ info: CustomerInfo,
+        appUserID: String,
+        cachedCustomerInfo: () -> CustomerInfo?
+    ) -> Bool {
+        info.originalAppUserId == appUserID
+            || info.originalAppUserId == cachedCustomerInfo()?.originalAppUserId
     }
 
     static func makeSnapshot(

@@ -204,17 +204,76 @@ struct IdentityFenceTests {
         var snapshots = mapStream(upstreams: upstreams, user: user).makeAsyncIterator()
 
         let first = try #require(await subscriptions.next())
-        first.continuation.yield(proInfo())
+        let aInfo = proInfo()
+        upstreams.send(aInfo, for: "A", through: first)
         #expect(await snapshots.next()?.isPro == true)
 
         await transition.perform(service: service, user: user)
-        first.continuation.yield(proInfo())
+        first.continuation.yield(aInfo)
 
         // Ends only once the stale subscription, and anything it buffered, was released.
         for await _ in first.ended {}
         let second = try #require(await subscriptions.next())
-        second.continuation.yield(freeInfo())
+        upstreams.send(freeInfo(for: user.current), for: user.current, through: second)
         #expect(await snapshots.next()?.isPro == false)
+    }
+
+    // RevenueCat replaces the value it replays only when it delivers new customer info to an
+    // observer. An offline logout, or a switch that fetches nothing, leaves A's info in place.
+    @Test(
+        "A resubscription's replay of A's customer info is dropped after the identity changed",
+        arguments: Transition.allCases
+    )
+    func replayAfterResubscriptionIsDropped(_ transition: Transition) async throws {
+        let user = AppUserID("A")
+        let upstreams = Upstreams()
+        var subscriptions = upstreams.subscriptions.makeAsyncIterator()
+        var snapshots = mapStream(upstreams: upstreams, user: user).makeAsyncIterator()
+
+        let first = try #require(await subscriptions.next())
+        let aInfo = proInfo()
+        upstreams.send(aInfo, for: "A", through: first)
+        #expect(await snapshots.next()?.isPro == true)
+
+        await transition.perform(service: service, user: user)
+        first.continuation.yield(aInfo)
+        for await _ in first.ended {}
+
+        // The second subscription replays A's info. Finishing right behind it makes "dropped"
+        // observable as the stream ending with nothing yielded.
+        let second = try #require(await subscriptions.next())
+        second.continuation.finish()
+        #expect(await snapshots.next() == nil, "A's replayed info must not reach the new identity.")
+    }
+
+    @Test("A stream started after an offline logout drops the replay of A's customer info")
+    func newStreamAfterOfflineLogOutDropsReplay() async throws {
+        let user = AppUserID("A")
+        let upstreams = Upstreams()
+        upstreams.record(proInfo(), for: "A")
+        await Transition.offlineLogOutThatThrows.perform(service: service, user: user)
+
+        var subscriptions = upstreams.subscriptions.makeAsyncIterator()
+        var snapshots = mapStream(upstreams: upstreams, user: user).makeAsyncIterator()
+        let subscription = try #require(await subscriptions.next())
+        subscription.continuation.finish()
+
+        #expect(await snapshots.next() == nil, "A's replayed info must not reach the anonymous user.")
+    }
+
+    @Test("A replay of the current customer's info is delivered, including under an alias")
+    func replayForCurrentCustomerIsDelivered() async throws {
+        let user = AppUserID("B")
+        let upstreams = Upstreams()
+        // B's RevenueCat customer began as an anonymous user, so its original ID is not "B".
+        upstreams.record(proInfo(for: "$RCAnonymousID:original"), for: "B")
+
+        var subscriptions = upstreams.subscriptions.makeAsyncIterator()
+        var snapshots = mapStream(upstreams: upstreams, user: user).makeAsyncIterator()
+        let subscription = try #require(await subscriptions.next())
+        subscription.continuation.finish()
+
+        #expect(await snapshots.next()?.isPro == true)
     }
 
     @Test("A stream value that arrives during a login is dropped and the stream resumes after it")
@@ -228,7 +287,7 @@ struct IdentityFenceTests {
         _ = try await service.logIn(
             currentIdentity: { user.identity },
             operation: {
-                first.continuation.yield(proInfo())
+                upstreams.send(proInfo(), for: "A", through: first)
                 for await _ in first.ended {}
                 user.set("B")
                 return freeInfo()
@@ -236,7 +295,7 @@ struct IdentityFenceTests {
         )
 
         let second = try #require(await subscriptions.next())
-        second.continuation.yield(freeInfo())
+        upstreams.send(freeInfo(for: "B"), for: "B", through: second)
         #expect(await snapshots.next()?.isPro == false)
     }
 
@@ -244,6 +303,7 @@ struct IdentityFenceTests {
         RevenueCatPaywallService.mapStream(
             subscribe: upstreams.subscribe,
             appUserID: { user.current },
+            cachedCustomerInfo: { upstreams.cachedCustomerInfo(for: user.current) },
             identityGate: gate,
             entitlementID: "pro",
             permanentLicenseEntitlementID: nil
@@ -255,12 +315,16 @@ struct IdentityFenceTests {
 
 private let anonymousID = "$RCAnonymousID:test"
 
-private func proInfo() -> CustomerInfo {
-    makeCustomerInfo(entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)])
+/// Customer info for the RevenueCat customer whose original app user ID is `customer`.
+private func proInfo(for customer: String = "A") -> CustomerInfo {
+    makeCustomerInfo(
+        entitlements: ["pro": makeEntitlement(id: "pro", isActive: true)],
+        originalAppUserId: customer
+    )
 }
 
-private func freeInfo() -> CustomerInfo {
-    makeCustomerInfo(entitlements: [:])
+private func freeInfo(for customer: String = "test-user") -> CustomerInfo {
+    makeCustomerInfo(entitlements: [:], originalAppUserId: customer)
 }
 
 /// The app user ID RevenueCat reports, shared with the `@Sendable` closures under test.
@@ -282,8 +346,10 @@ final class AppUserID: Sendable {
     }
 }
 
-/// Stands in for `Purchases.shared.customerInfoStream`: every subscription is a new stream whose
-/// continuation, and a signal for its termination, is published to the test.
+/// Stands in for `Purchases.shared.customerInfoStream` and RevenueCat's per-user customer info
+/// cache. Every subscription is a new stream whose continuation, and a signal for its
+/// termination, is published to the test. Like RevenueCat, a new subscription first replays the
+/// customer info last sent, which an identity change does not clear.
 private final class Upstreams: Sendable {
     struct Subscription: Sendable {
         let continuation: AsyncStream<CustomerInfo>.Continuation
@@ -292,6 +358,8 @@ private final class Upstreams: Sendable {
 
     let subscriptions: AsyncStream<Subscription>
     private let publish: AsyncStream<Subscription>.Continuation
+    private let lastSent = Mutex<CustomerInfo?>(nil)
+    private let cache = Mutex<[String: CustomerInfo]>([:])
 
     init() {
         (subscriptions, publish) = AsyncStream<Subscription>.makeStream()
@@ -299,10 +367,29 @@ private final class Upstreams: Sendable {
 
     @Sendable func subscribe() -> AsyncStream<CustomerInfo> {
         let (stream, continuation) = AsyncStream<CustomerInfo>.makeStream()
+        if let replay = lastSent.withLock({ $0 }) {
+            continuation.yield(replay)
+        }
         let (ended, endedContinuation) = AsyncStream<Void>.makeStream()
         continuation.onTermination = { _ in endedContinuation.finish() }
         publish.yield(Subscription(continuation: continuation, ended: ended))
         return stream
+    }
+
+    /// Caches `info` for `appUserID` and makes it the value the next subscription replays.
+    func record(_ info: CustomerInfo, for appUserID: String) {
+        cache.withLock { $0[appUserID] = info }
+        lastSent.withLock { $0 = info }
+    }
+
+    /// Records `info`, then delivers it through `subscription`.
+    func send(_ info: CustomerInfo, for appUserID: String, through subscription: Subscription) {
+        record(info, for: appUserID)
+        subscription.continuation.yield(info)
+    }
+
+    func cachedCustomerInfo(for appUserID: String) -> CustomerInfo? {
+        cache.withLock { $0[appUserID] }
     }
 }
 

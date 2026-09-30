@@ -436,13 +436,14 @@ struct MapStreamTests {
 func makeCustomerInfo(
     entitlements: [String: EntitlementInfo],
     verification: VerificationResult = .notRequested,
-    requestDate: Date = Date()
+    requestDate: Date = Date(),
+    originalAppUserId: String = "test-user"
 ) -> CustomerInfo {
     CustomerInfo(
         entitlements: EntitlementInfos(entitlements: entitlements, verification: verification),
         requestDate: requestDate,
         firstSeen: Date(),
-        originalAppUserId: "test-user"
+        originalAppUserId: originalAppUserId
     )
 }
 
@@ -475,6 +476,7 @@ extension RevenueCatPaywallService {
         mapStream(
             subscribe: { upstream },
             appUserID: { "test-user" },
+            cachedCustomerInfo: { nil },
             identityGate: RevenueCatIdentityOperationGate(),
             entitlementID: entitlementID,
             permanentLicenseEntitlementID: permanentLicenseEntitlementID

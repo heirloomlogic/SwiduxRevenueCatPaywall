@@ -464,6 +464,24 @@ func makeEntitlement(
     )
 }
 
+extension RevenueCatPaywallService {
+    /// Maps one upstream stream behind a private identity gate, so mapping tests never observe
+    /// identity operations that other suites run in parallel.
+    static func mapStream(
+        _ upstream: AsyncStream<CustomerInfo>,
+        entitlementID: String,
+        permanentLicenseEntitlementID: String?
+    ) -> AsyncStream<EntitlementSnapshot> {
+        mapStream(
+            subscribe: { upstream },
+            appUserID: { "test-user" },
+            identityGate: RevenueCatIdentityOperationGate(),
+            entitlementID: entitlementID,
+            permanentLicenseEntitlementID: permanentLicenseEntitlementID
+        )
+    }
+}
+
 /// A base service whose reads map `info` exactly as ``RevenueCatPaywallService`` maps a live
 /// `Purchases.shared` result, so a test drives `ResilientPaywallService` through the adapter's real
 /// mapping without a configured RevenueCat SDK.

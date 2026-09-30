@@ -12,6 +12,8 @@ public enum RevenueCatPaywallError: Error, Equatable, Sendable {
     case notConfigured
     /// The response or a configured entitlement failed signature verification, so no snapshot was produced.
     case verificationFailed
+    /// The purchase identity changed while a read or restore was in flight, so its result was discarded instead of being reported for the new identity.
+    case identityChanged
 }
 
 /// A provider-independent description of the active purchase identity.
@@ -85,6 +87,8 @@ extension RevenueCatPaywallError: LocalizedError {
             "Purchases aren't available yet. Please try again."
         case .verificationFailed:
             "Your purchases couldn't be verified. Please try again later."
+        case .identityChanged:
+            "Your account changed while purchases were loading. Please try again."
         }
     }
 }

@@ -84,7 +84,44 @@ The entitlement stream is an observation channel, not confirmation that an ident
 
 The service identity methods are main-actor isolated. SwiftUI tasks can call them directly; background callers must hop to `MainActor`. All package login/logout entry points share a queue, including calls on different service instances and the deprecated namespace methods. Each operation holds its turn through result mapping and error sampling. Calls made directly through RevenueCat bypass this queue, so use the package methods for identity changes. Results record an operation’s completion; a later queued operation can change the identity again.
 
-> Warning: This adapter does not reset `PaywallState` or isolate the decorator cache and delayed stream/read results across account changes. A valid old-account cache must never be used as a new account's fallback. The host app must prevent old access from appearing during a transition; see [account isolation issue #46](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/issues/46) for the unfinished state, cache, and stream contract. Removing `.lastKnownEntitlement` alone does not reset displayed state or stop delayed results. The merged `ResilientPaywallService.clearCache()` is not yet in a published Swidux release and is not used here.
+### Account changes
+
+At every package login and logout, including one that throws after RevenueCat already changed identity, the service discards its own results that could belong to the previous identity:
+
+- A `customerInfo()` or `restorePurchases()` call that starts while a login or logout is running waits for it to finish.
+- A read or restore that returns after an identity operation began, or after the RevenueCat app user ID changed, throws ``RevenueCatPaywallError/identityChanged`` instead of returning the previous identity's entitlements. `ResilientPaywallService` treats that like any failed read: it retries, and the retry reads the new identity.
+- The entitlement stream stays open, but it drops a RevenueCat subscription as soon as a value arrives after an identity change, along with anything that subscription still buffered. It subscribes again once no identity operation is running.
+
+Three things remain the app's job, because the adapter does not own the plugin state or the decorator's cache:
+
+- **Displayed state.** `PaywallState` keeps the previous account's entitlements until something replaces them. Dispatch the operation's snapshot, or a free snapshot when there is none, as soon as the operation returns or throws with `identityChanged`. The plugin then ignores any refresh or restore that started before it.
+- **The decorator cache.** `ResilientPaywallService` keeps one last-known-good entry that is not tied to an account. A failed read after the switch can fall back to the previous account's entry until you remove it. Remove it before the operation, so a crash mid-switch cannot carry it into the next launch, and again afterwards, in case a read finished and saved it before the operation began. `removeValue(for:)` returns `false` when the Keychain refuses the deletion, for example while the device is locked; the entry is still there, so don't refresh until a removal succeeds.
+- **Values already delivered.** A stream value the service delivered before the operation began can still be waiting in a buffer further down, such as the decorator's stream. The service cannot recall it, and the plugin applies it when it arrives.
+
+```swift
+@MainActor
+func changePurchaseAccount(
+    _ operation: () async throws -> RevenueCatPaywallIdentityResult
+) async {
+    cacheStore.removeValue(for: .lastKnownEntitlement)
+    let snapshot: EntitlementSnapshot?
+    do {
+        snapshot = try await operation().snapshot
+    } catch let error as RevenueCatPaywallIdentityError where error.identityChanged {
+        snapshot = nil
+    } catch {
+        return  // The identity did not change.
+    }
+    store.send(.paywall(.customerInfoUpdated(snapshot ?? EntitlementSnapshot())))
+    guard cacheStore.removeValue(for: .lastKnownEntitlement) else { return }  // Retry before refreshing.
+    store.send(.paywall(.refreshCustomerInfo))
+}
+
+await changePurchaseAccount { try await revenueCatService.logIn(appUserID: account.id) }
+await changePurchaseAccount { try await revenueCatService.logOut() }
+```
+
+`cacheStore` is the `KeychainKeyValueStore` you pass to `ResilientPaywallService` in Step 3. Swidux's `ResilientPaywallService.clearCache()` will replace the direct removal once a Swidux release includes it; [issue #46](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/issues/46) tracks that. Purchase identity is separate from any iCloud or app account: change it only when the purchase account changes.
 
 > Important: Call ``RevenueCatPaywall/configure(apiKey:appUserID:userDefaults:logLevel:entitlementVerification:purchasesAreCompletedBy:storeKitVersion:)`` before dispatching paywall work. Constructing `RevenueCatPaywallService` earlier is safe, but reads and restores throw ``RevenueCatPaywallError/notConfigured`` and the entitlement stream finishes immediately until configuration runs.
 
@@ -121,7 +158,7 @@ let service = ResilientPaywallService(
 )
 ```
 
-Back this cache with the Keychain as shown; a `UserDefaults` plist is user-editable and can be restored from a doctored backup. Account isolation during sign-out and sign-in remains the host application's responsibility (see [#46](https://github.com/HeirloomLogic/SwiduxRevenueCatPaywall/issues/46)).
+Back this cache with the Keychain as shown; a `UserDefaults` plist is user-editable and can be restored from a doctored backup. The cache is not tied to an account, so remove it when the purchase account changes (see <doc:HowToImplementService#Account-changes>).
 
 `ResilientPaywallService` (from SwiduxPaywall) persists the last entitlement snapshot a successful read delivered, so a slow or failing network at cold launch never gates a paying user as free — the last-known-good state holds until live data arrives, and a genuine lapse is honoured on the next successful read. The bare `RevenueCatPaywallService` works too, but for production the resilient wrapper is the right default.
 
@@ -225,7 +262,7 @@ The plugin calls `RevenueCatPaywallService.restorePurchases()`, which forwards t
 
 ## Step 9: Handle errors
 
-Before RevenueCat is configured, reads and restores throw ``RevenueCatPaywallError/notConfigured``. Identity operations throw ``RevenueCatPaywallIdentityError`` with `reason == .notConfigured`. A failed signature throws ``RevenueCatPaywallError/verificationFailed`` during an entitlement read and maps to `RevenueCatPaywallIdentityError.Reason.verificationFailed` during an identity operation. Other identity failures are also mapped to package-owned reasons; ordinary reads and restores can still propagate SDK errors. The plugin handles failed reads with `.refreshFailed(message)` when no valid cache fallback exists. Read `store.paywall.error` from your paywall view to surface a retry affordance:
+Before RevenueCat is configured, reads and restores throw ``RevenueCatPaywallError/notConfigured``. Identity operations throw ``RevenueCatPaywallIdentityError`` with `reason == .notConfigured`. A failed signature throws ``RevenueCatPaywallError/verificationFailed`` during an entitlement read and maps to `RevenueCatPaywallIdentityError.Reason.verificationFailed` during an identity operation. A read or restore whose identity changed before it returned throws ``RevenueCatPaywallError/identityChanged``. Other identity failures are also mapped to package-owned reasons; ordinary reads and restores can still propagate SDK errors. The plugin handles failed reads with `.refreshFailed(message)` when no valid cache fallback exists. Read `store.paywall.error` from your paywall view to surface a retry affordance:
 
 ```swift
 if let error = store.paywall.error {

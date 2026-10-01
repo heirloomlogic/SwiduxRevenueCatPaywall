@@ -15,5 +15,5 @@
 ## Documentation and release notes
 
 - [ ] I checked whether this changes generated documentation. If it does, I enabled `.dev-tooling` and ran the documentation command described in `CONTRIBUTING.md`.
-- [ ] I updated `CHANGELOG.md`, or this change does not need a release note.
+- [ ] The PR title works as a line in the GitHub release notes, or this change does not need a release note.
 - [ ] I followed the dev-tooling and strict-formatting guidance in `CONTRIBUTING.md`.
